@@ -201,39 +201,45 @@
     .tone-red { color: var(--tone-red-text); }
     .ink-strong { color: var(--reader-ink-strong); }
 
-    /* AI Definition & Explanation Bottom Sheet — comfortable larger text & smooth touch drag (online + offline) */
+    /* AI Definition & Explanation Bottom Sheet — half-screen height, uniform readable text & smooth touch drag (online + offline) */
     #ai-panel:not(.hidden) {
       display: flex;
       flex-direction: column;
-      max-height: 82vh;
+      max-height: 50vh;
+      max-height: 50dvh;
     }
     #ai-panel-drag-handle,
     #ai-panel-header {
       touch-action: none;
     }
     #ai-target-phrase {
-      font-size: 1.15rem;
+      font-size: 1.125rem;
       line-height: 1.3;
     }
     #ai-panel-body {
       overflow-y: auto;
       overscroll-behavior: contain;
       -webkit-overflow-scrolling: touch;
-      font-size: 17px;
+      font-size: 16.5px;
     }
     #ai-result {
-      font-size: 17px;
-      line-height: 1.62;
-    }
-    #ai-result [data-lang-block="en-def"] .leading-relaxed,
-    #ai-result [data-lang-block="en-ctx"] .leading-relaxed,
-    #ai-result [data-lang-block="vi"] .font-semibold {
-      font-size: 17px;
-      line-height: 1.58;
-    }
-    #ai-result [data-lang-block="vi"] .whitespace-pre-line {
       font-size: 16.5px;
-      line-height: 1.6;
+      line-height: 1.55;
+    }
+    #ai-result .ai-card-label {
+      font-size: 12px;
+      line-height: 1.35;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    #ai-result .ai-card-body {
+      font-size: 16.5px;
+      line-height: 1.55;
+    }
+    #ai-result .ai-card-subtext {
+      font-size: 14.5px;
+      line-height: 1.48;
     }
 
     /* Per-section 2-column spread so each chapter flows cleanly without scrolling back up across the whole book */
@@ -714,7 +720,7 @@
   </button>
 
   <!-- AI Explanation Bottom Sheet / Side Card -->
-  <section id="ai-panel" class="hidden fixed bottom-0 left-0 right-0 sm:left-auto sm:right-5 sm:bottom-5 sm:w-[440px] max-w-full z-40 rounded-t-2xl sm:rounded-2xl border shadow-2xl surface-panel flex flex-col max-h-[82vh] transition-all">
+  <section id="ai-panel" class="hidden fixed bottom-0 left-0 right-0 sm:left-auto sm:right-5 sm:bottom-5 sm:w-[440px] max-w-full z-40 rounded-t-2xl sm:rounded-2xl border shadow-2xl surface-panel flex flex-col max-h-[50vh] transition-all">
     <!-- Swipe-Down Grab Handle (Mobile Bottom Sheet) -->
     <div id="ai-panel-drag-handle" class="pt-2.5 pb-1 flex items-center justify-center cursor-grab active:cursor-grabbing touch-none select-none shrink-0" title="Swipe down to close" aria-hidden="true">
       <span class="block w-10 h-1.5 rounded-full bg-current opacity-20"></span>
@@ -754,7 +760,7 @@
     </div>
 
     <!-- Panel Body -->
-    <div id="ai-panel-body" class="p-4 overflow-y-auto overscroll-contain space-y-3 text-[17px]">
+    <div id="ai-panel-body" class="p-4 overflow-y-auto overscroll-contain space-y-3 text-[16.5px]">
       <!-- Interactive Phrase Builder Bar (Expand to 2+ words easily on touch screens) -->
       <div id="phrase-builder-bar" class="flex flex-wrap items-center justify-between gap-1.5 pb-2 border-b border-themed text-xs">
         <div class="flex flex-wrap items-center gap-1">
@@ -784,7 +790,7 @@
       </div>
 
       <!-- Explanation Result -->
-      <div id="ai-result" class="space-y-3 text-[17px] leading-relaxed"></div>
+      <div id="ai-result" class="space-y-3 text-[16.5px] leading-relaxed"></div>
 
       <!-- Quick Actions -->
       <div id="ai-quick-actions" class="pt-2 flex flex-wrap gap-1.5">
@@ -4217,17 +4223,17 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
 
       function renderLemmaAndCollocationsBar(lemma, collocations = [], exampleSentence = '', usageTip = '', targetPhrase = '') {
         const chips = (collocations || []).filter(Boolean).slice(0, 4).map(c =>
-          `<button type="button" data-speak-text="${escapeHtml(c)}" title="Tap to hear pronunciation" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[13px] font-semibold bg-amber-600/15 ink-strong border border-amber-700/30 hover:bg-amber-600/25 active:scale-95 transition-all cursor-pointer">${escapeHtml(c)}</button>`
+          `<button type="button" data-speak-text="${escapeHtml(c)}" title="Tap to hear pronunciation" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[13.5px] font-semibold bg-amber-600/15 ink-strong border border-amber-700/30 hover:bg-amber-600/25 active:scale-95 transition-all cursor-pointer">${escapeHtml(c)}</button>`
         ).join(' ');
         const cleanEx = (exampleSentence || '').replace(/^["'“”]+|["'“”]+$/g, '').trim();
         const highlightedEx = cleanEx ? highlightTargetInHtml(cleanEx, targetPhrase) : '';
         if (!lemma && !chips && !cleanEx && !usageTip) return '';
         return `
-          <div class="pt-2 mt-2 border-t border-amber-600/15 space-y-2 text-sm">
+          <div class="ai-card-subtext pt-2 mt-2 border-t border-amber-600/15 space-y-2">
             ${lemma ? `<div class="muted-text"><strong>Base / Root Form:</strong> <code class="px-1.5 py-0.5 rounded subtle-surface ink-strong font-semibold">${escapeHtml(lemma)}</code></div>` : ''}
-            ${usageTip ? `<div class="px-2.5 py-2 rounded-xl bg-amber-600/12 border border-amber-700/25 text-[15px] leading-snug"><span class="font-bold ink-strong">Usage Tip:</span> <span class="ink-strong">${escapeHtml(usageTip)}</span></div>` : ''}
+            ${usageTip ? `<div class="px-2.5 py-2 rounded-xl bg-amber-600/12 border border-amber-700/25 leading-snug"><span class="font-bold ink-strong">Usage Tip:</span> <span class="ink-strong">${escapeHtml(usageTip)}</span></div>` : ''}
             ${chips ? `<div class="flex flex-wrap items-center gap-1.5"><span class="muted-text font-medium mr-1">Collocations / Chunks:</span>${chips}</div>` : ''}
-            ${cleanEx ? `<div class="p-2.5 rounded-xl subtle-surface border border-themed flex items-start justify-between gap-2"><div class="text-[15px] leading-snug"><strong>Everyday Example:</strong> <em>"${highlightedEx}"</em></div><button type="button" data-speak-text="${escapeHtml(cleanEx)}" title="Listen to everyday example" aria-label="Listen to everyday example" class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-600/15 ink-strong border border-amber-700/30 hover:bg-amber-600/25 active:scale-95 transition-all shrink-0 cursor-pointer">${MINI_SPEAKER_ICON_SVG}</button></div>` : ''}
+            ${cleanEx ? `<div class="p-2.5 rounded-xl subtle-surface border border-themed flex items-start justify-between gap-2"><div class="leading-snug"><strong>Everyday Example:</strong> <em>"${highlightedEx}"</em></div><button type="button" data-speak-text="${escapeHtml(cleanEx)}" title="Listen to everyday example" aria-label="Listen to everyday example" class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-600/15 ink-strong border border-amber-700/30 hover:bg-amber-600/25 active:scale-95 transition-all shrink-0 cursor-pointer">${MINI_SPEAKER_ICON_SVG}</button></div>` : ''}
           </div>
         `;
       }
@@ -4244,7 +4250,7 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
           return `<div class="flex items-start justify-between gap-2 px-2.5 py-1.5 rounded-lg subtle-surface border border-themed"><span class="ink-strong font-medium leading-snug">${escapeHtml(item)}</span>${speakBtn}</div>`;
         }).join('');
         return `
-          <div class="pt-2 mt-2 border-t border-amber-600/15 space-y-1.5 text-sm">
+          <div class="ai-card-subtext pt-2 mt-2 border-t border-amber-600/15 space-y-1.5">
             <div class="muted-text font-semibold">Key Phrases &amp; Patterns to Remember:</div>
             <div class="space-y-1.5">${rows}</div>
           </div>
@@ -4254,8 +4260,8 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
       function renderSimpleEnglishCard(partOfSpeech, definitionText, extraHtml = '') {
         return `
           <div data-lang-block="en-def" class="p-3 rounded-2xl bg-amber-600/10 border border-amber-600/20 space-y-1.5">
-            <div class="text-xs font-semibold uppercase tracking-wide tone-amber">Simple English Definition${partOfSpeech ? ` (${escapeHtml(partOfSpeech)})` : ''}</div>
-            <div class="text-[17px] leading-relaxed">${escapeHtml(definitionText)}</div>
+            <div class="ai-card-label text-xs font-semibold uppercase tracking-wide tone-amber">Simple English Definition${partOfSpeech ? ` (${escapeHtml(partOfSpeech)})` : ''}</div>
+            <div class="ai-card-body text-[16.5px] leading-relaxed">${escapeHtml(definitionText)}</div>
             ${extraHtml}
           </div>
         `;
@@ -4264,7 +4270,7 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
       function renderContextExplanationCard(explanationText, extraHtml = '', govPhrase = '', targetPhrase = '') {
         const showPhraseBridge = govPhrase && govPhrase.trim().includes(' ');
         const phraseBridgeHtml = showPhraseBridge
-          ? `<div class="px-2.5 py-1.5 rounded-xl bg-sky-600/10 border border-sky-700/25 text-sm">
+          ? `<div class="ai-card-subtext px-2.5 py-1.5 rounded-xl bg-sky-600/10 border border-sky-700/25">
                <span class="font-semibold ink-strong">Phrase in sentence:</span>
                <span class="italic font-medium ink-strong">"${highlightTargetInHtml(govPhrase, targetPhrase)}"</span>
              </div>`
@@ -4272,8 +4278,8 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         return `
           <div data-lang-block="en-ctx" class="p-3 rounded-2xl bg-sky-600/10 border border-sky-600/20 space-y-2">
             <div>
-              <div class="text-xs font-semibold uppercase tracking-wide tone-sky">Explanation in Context</div>
-              <div class="text-[17px] leading-relaxed mt-0.5">${escapeHtml(explanationText)}</div>
+              <div class="ai-card-label text-xs font-semibold uppercase tracking-wide tone-sky">Explanation in Context</div>
+              <div class="ai-card-body text-[16.5px] leading-relaxed mt-1">${escapeHtml(explanationText)}</div>
             </div>
             ${phraseBridgeHtml}
             ${extraHtml}
@@ -4311,20 +4317,20 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         if (isFullSentence) {
           const headline = cleanMean || cleanDef || ctxExplainText;
           const subDef = cleanDef && meanNorm && !meanNorm.includes(defNorm.slice(0, 18)) && !defNorm.includes(meanNorm.slice(0, 18))
-            ? `<div class="text-[15px] muted-text mt-1 leading-snug"><strong class="ink-strong">Ý chính:</strong> ${escapeHtml(cleanDef)}</div>`
+            ? `<div class="ai-card-subtext muted-text mt-1 leading-snug"><strong class="ink-strong">Ý chính:</strong> ${escapeHtml(cleanDef)}</div>`
             : '';
           topHtml = `
-            <div class="text-xs font-semibold uppercase tracking-wide tone-emerald">Dịch nghĩa Tiếng Việt (Vietnamese Meaning)</div>
-            <div class="font-semibold text-[17px] leading-snug mt-0.5">${escapeHtml(headline)}</div>
+            <div class="ai-card-label text-xs font-semibold uppercase tracking-wide tone-emerald">Dịch nghĩa Tiếng Việt (Vietnamese Meaning)</div>
+            <div class="ai-card-body font-semibold text-[16.5px] leading-relaxed mt-1">${escapeHtml(headline)}</div>
             ${subDef}
           `;
         } else {
           const primaryHeadline = cleanMean || cleanDef;
           const showSecondaryDef = cleanDef && cleanMean && defNorm !== meanNorm && !defNorm.startsWith(meanNorm);
           topHtml = `
-            <div class="text-xs font-semibold uppercase tracking-wide tone-emerald">Định nghĩa Tiếng Việt (Vietnamese Definition)</div>
-            <div class="font-semibold text-[17px] leading-snug mt-0.5">${escapeHtml(primaryHeadline)}</div>
-            ${showSecondaryDef ? `<div class="text-[15px] leading-relaxed mt-1">${escapeHtml(cleanDef)}</div>` : ''}
+            <div class="ai-card-label text-xs font-semibold uppercase tracking-wide tone-emerald">Định nghĩa Tiếng Việt (Vietnamese Definition)</div>
+            <div class="ai-card-body font-semibold text-[16.5px] leading-relaxed mt-1">${escapeHtml(primaryHeadline)}</div>
+            ${showSecondaryDef ? `<div class="ai-card-subtext leading-relaxed mt-1">${escapeHtml(cleanDef)}</div>` : ''}
           `;
         }
 
@@ -4332,8 +4338,8 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
           <div data-lang-block="vi" class="p-3 rounded-2xl bg-emerald-600/10 border border-emerald-600/20 space-y-2">
             <div>${topHtml}</div>
             <div class="pt-2 border-t border-emerald-600/15">
-              <div class="text-xs font-semibold uppercase tracking-wide tone-emerald">Giải thích trong ngữ cảnh (Tiếng Việt)</div>
-              <div class="text-[16px] leading-relaxed mt-1 whitespace-pre-line">${escapeHtml(ctxExplainText)}</div>
+              <div class="ai-card-label text-xs font-semibold uppercase tracking-wide tone-emerald">Giải thích trong ngữ cảnh (Tiếng Việt)</div>
+              <div class="ai-card-body text-[16.5px] leading-relaxed mt-1 whitespace-pre-line">${escapeHtml(ctxExplainText)}</div>
             </div>
           </div>
         `;

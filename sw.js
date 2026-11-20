@@ -1,6 +1,6 @@
 /* Steven N. Ebook — Offline App-Shell Service Worker (GitHub Pages subpath-safe) */
-const CACHE_VERSION = 'steven-ebook-shell-v4';
-const RUNTIME_CACHE = 'steven-ebook-runtime-v4';
+const CACHE_VERSION = 'steven-ebook-shell-v5';
+const RUNTIME_CACHE = 'steven-ebook-runtime-v5';
 
 const APP_SHELL_URLS = [
   './',
