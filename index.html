@@ -201,6 +201,41 @@
     .tone-red { color: var(--tone-red-text); }
     .ink-strong { color: var(--reader-ink-strong); }
 
+    /* AI Definition & Explanation Bottom Sheet — comfortable larger text & smooth touch drag (online + offline) */
+    #ai-panel:not(.hidden) {
+      display: flex;
+      flex-direction: column;
+      max-height: 82vh;
+    }
+    #ai-panel-drag-handle,
+    #ai-panel-header {
+      touch-action: none;
+    }
+    #ai-target-phrase {
+      font-size: 1.15rem;
+      line-height: 1.3;
+    }
+    #ai-panel-body {
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      -webkit-overflow-scrolling: touch;
+      font-size: 17px;
+    }
+    #ai-result {
+      font-size: 17px;
+      line-height: 1.62;
+    }
+    #ai-result [data-lang-block="en-def"] .leading-relaxed,
+    #ai-result [data-lang-block="en-ctx"] .leading-relaxed,
+    #ai-result [data-lang-block="vi"] .font-semibold {
+      font-size: 17px;
+      line-height: 1.58;
+    }
+    #ai-result [data-lang-block="vi"] .whitespace-pre-line {
+      font-size: 16.5px;
+      line-height: 1.6;
+    }
+
     /* Per-section 2-column spread so each chapter flows cleanly without scrolling back up across the whole book */
     @media (min-width: 900px) {
       .reader-prose.two-col-spread {
@@ -679,17 +714,22 @@
   </button>
 
   <!-- AI Explanation Bottom Sheet / Side Card -->
-  <section id="ai-panel" class="hidden fixed bottom-0 left-0 right-0 sm:left-auto sm:right-5 sm:bottom-5 sm:w-[430px] max-w-full z-40 rounded-t-2xl sm:rounded-2xl border shadow-2xl surface-panel flex flex-col max-h-[78vh] transition-all">
+  <section id="ai-panel" class="hidden fixed bottom-0 left-0 right-0 sm:left-auto sm:right-5 sm:bottom-5 sm:w-[440px] max-w-full z-40 rounded-t-2xl sm:rounded-2xl border shadow-2xl surface-panel flex flex-col max-h-[82vh] transition-all">
+    <!-- Swipe-Down Grab Handle (Mobile Bottom Sheet) -->
+    <div id="ai-panel-drag-handle" class="pt-2.5 pb-1 flex items-center justify-center cursor-grab active:cursor-grabbing touch-none select-none shrink-0" title="Swipe down to close" aria-hidden="true">
+      <span class="block w-10 h-1.5 rounded-full bg-current opacity-20"></span>
+    </div>
+
     <!-- Panel Header -->
-    <div class="px-4 py-3 border-b border-themed flex items-center justify-between gap-2">
+    <div id="ai-panel-header" class="px-4 pt-1 pb-2.5 border-b border-themed flex items-center justify-between gap-2 touch-none">
       <div class="flex items-center gap-2 min-w-0">
         <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-600/15 tone-amber shrink-0">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/></svg>
         </span>
         <div class="min-w-0">
           <div class="flex items-center gap-1.5 min-w-0 flex-wrap">
-            <div id="ai-target-phrase" class="text-base font-bold truncate max-w-[180px]">Word</div>
-            <span id="ai-phonetic-badge" class="hidden text-[11px] font-mono muted-text truncate"></span>
+            <div id="ai-target-phrase" class="text-lg font-bold truncate max-w-[190px]">Word</div>
+            <span id="ai-phonetic-badge" class="hidden text-xs font-mono muted-text truncate"></span>
             <button id="btn-pronounce" type="button" title="Listen (US Pronunciation)" aria-label="Listen (US Pronunciation)" class="inline-flex items-center justify-center w-7 h-7 rounded-full border border-themed bg-amber-600/15 tone-amber hover:bg-amber-600/25 active:scale-95 transition-all shrink-0">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/></svg>
             </button>
@@ -714,7 +754,7 @@
     </div>
 
     <!-- Panel Body -->
-    <div id="ai-panel-body" class="p-4 overflow-y-auto space-y-3 text-base">
+    <div id="ai-panel-body" class="p-4 overflow-y-auto overscroll-contain space-y-3 text-[17px]">
       <!-- Interactive Phrase Builder Bar (Expand to 2+ words easily on touch screens) -->
       <div id="phrase-builder-bar" class="flex flex-wrap items-center justify-between gap-1.5 pb-2 border-b border-themed text-xs">
         <div class="flex flex-wrap items-center gap-1">
@@ -723,7 +763,7 @@
           <button id="btn-phrase-sentence" type="button" class="px-2 py-1 rounded-lg bg-sky-600/15 tone-sky border border-sky-600/30 font-semibold hover:bg-sky-600/25 transition-colors" title="Select whole sentence">Whole Sentence</button>
           <button id="btn-phrase-reset" type="button" class="px-2 py-1 rounded-lg border border-themed muted-text hover-surface transition-colors" title="Reset to single word">1 Word</button>
         </div>
-        <span class="text-[11px] muted-text">Slide across words or tap to expand</span>
+        <span class="text-[11px] muted-text">Swipe down to close</span>
       </div>
 
       <!-- Saved Word Mastery & Encounter Bar (visible when active word/phrase is saved) -->
@@ -738,13 +778,13 @@
       </div>
 
       <!-- Loading State -->
-      <div id="ai-loading" class="hidden py-4 flex items-center gap-2 text-xs muted-text">
+      <div id="ai-loading" class="hidden py-4 flex items-center gap-2 text-sm muted-text">
         <div class="dot-pulse flex gap-1 tone-amber"><span></span><span></span><span></span></div>
         <span>Analyzing meaning in context...</span>
       </div>
 
       <!-- Explanation Result -->
-      <div id="ai-result" class="space-y-2.5 leading-relaxed"></div>
+      <div id="ai-result" class="space-y-3 text-[17px] leading-relaxed"></div>
 
       <!-- Quick Actions -->
       <div id="ai-quick-actions" class="pt-2 flex flex-wrap gap-1.5">
@@ -4177,17 +4217,17 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
 
       function renderLemmaAndCollocationsBar(lemma, collocations = [], exampleSentence = '', usageTip = '', targetPhrase = '') {
         const chips = (collocations || []).filter(Boolean).slice(0, 4).map(c =>
-          `<button type="button" data-speak-text="${escapeHtml(c)}" title="Tap to hear pronunciation" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-600/15 ink-strong border border-amber-700/30 hover:bg-amber-600/25 active:scale-95 transition-all cursor-pointer">${escapeHtml(c)}</button>`
+          `<button type="button" data-speak-text="${escapeHtml(c)}" title="Tap to hear pronunciation" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[13px] font-semibold bg-amber-600/15 ink-strong border border-amber-700/30 hover:bg-amber-600/25 active:scale-95 transition-all cursor-pointer">${escapeHtml(c)}</button>`
         ).join(' ');
         const cleanEx = (exampleSentence || '').replace(/^["'“”]+|["'“”]+$/g, '').trim();
         const highlightedEx = cleanEx ? highlightTargetInHtml(cleanEx, targetPhrase) : '';
         if (!lemma && !chips && !cleanEx && !usageTip) return '';
         return `
-          <div class="pt-1.5 mt-1.5 border-t border-amber-600/15 space-y-1.5 text-xs">
+          <div class="pt-2 mt-2 border-t border-amber-600/15 space-y-2 text-sm">
             ${lemma ? `<div class="muted-text"><strong>Base / Root Form:</strong> <code class="px-1.5 py-0.5 rounded subtle-surface ink-strong font-semibold">${escapeHtml(lemma)}</code></div>` : ''}
-            ${usageTip ? `<div class="px-2 py-1.5 rounded-xl bg-amber-600/12 border border-amber-700/25 leading-snug"><span class="font-bold ink-strong">Usage Tip:</span> <span class="ink-strong">${escapeHtml(usageTip)}</span></div>` : ''}
-            ${chips ? `<div class="flex flex-wrap items-center gap-1"><span class="muted-text font-medium mr-1">Collocations / Chunks:</span>${chips}</div>` : ''}
-            ${cleanEx ? `<div class="p-2 rounded-xl subtle-surface border border-themed flex items-start justify-between gap-2"><div class="leading-snug"><strong>Everyday Example:</strong> <em>"${highlightedEx}"</em></div><button type="button" data-speak-text="${escapeHtml(cleanEx)}" title="Listen to everyday example" aria-label="Listen to everyday example" class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-600/15 ink-strong border border-amber-700/30 hover:bg-amber-600/25 active:scale-95 transition-all shrink-0 cursor-pointer">${MINI_SPEAKER_ICON_SVG}</button></div>` : ''}
+            ${usageTip ? `<div class="px-2.5 py-2 rounded-xl bg-amber-600/12 border border-amber-700/25 text-[15px] leading-snug"><span class="font-bold ink-strong">Usage Tip:</span> <span class="ink-strong">${escapeHtml(usageTip)}</span></div>` : ''}
+            ${chips ? `<div class="flex flex-wrap items-center gap-1.5"><span class="muted-text font-medium mr-1">Collocations / Chunks:</span>${chips}</div>` : ''}
+            ${cleanEx ? `<div class="p-2.5 rounded-xl subtle-surface border border-themed flex items-start justify-between gap-2"><div class="text-[15px] leading-snug"><strong>Everyday Example:</strong> <em>"${highlightedEx}"</em></div><button type="button" data-speak-text="${escapeHtml(cleanEx)}" title="Listen to everyday example" aria-label="Listen to everyday example" class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-600/15 ink-strong border border-amber-700/30 hover:bg-amber-600/25 active:scale-95 transition-all shrink-0 cursor-pointer">${MINI_SPEAKER_ICON_SVG}</button></div>` : ''}
           </div>
         `;
       }
@@ -4199,23 +4239,23 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
           // Extract the leading English phrase before '(' or '—' / ':' so tapping speaks clean English
           const enPart = item.split(/\s*(?:\(|—|–|:)/)[0].trim();
           const speakBtn = enPart && /[a-zA-Z]{2,}/.test(enPart)
-            ? `<button type="button" data-speak-text="${escapeHtml(enPart)}" title="Listen: ${escapeHtml(enPart)}" aria-label="Listen to ${escapeHtml(enPart)}" class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-600/15 ink-strong border border-amber-700/30 hover:bg-amber-600/25 active:scale-95 transition-all shrink-0 cursor-pointer">${MINI_SPEAKER_ICON_SVG}</button>`
+            ? `<button type="button" data-speak-text="${escapeHtml(enPart)}" title="Listen: ${escapeHtml(enPart)}" aria-label="Listen to ${escapeHtml(enPart)}" class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-600/15 ink-strong border border-amber-700/30 hover:bg-amber-600/25 active:scale-95 transition-all shrink-0 cursor-pointer">${MINI_SPEAKER_ICON_SVG}</button>`
             : '';
-          return `<div class="flex items-start justify-between gap-2 px-2 py-1 rounded-lg subtle-surface border border-themed"><span class="ink-strong font-medium leading-snug">${escapeHtml(item)}</span>${speakBtn}</div>`;
+          return `<div class="flex items-start justify-between gap-2 px-2.5 py-1.5 rounded-lg subtle-surface border border-themed"><span class="ink-strong font-medium leading-snug">${escapeHtml(item)}</span>${speakBtn}</div>`;
         }).join('');
         return `
-          <div class="pt-1.5 mt-1.5 border-t border-amber-600/15 space-y-1 text-xs">
+          <div class="pt-2 mt-2 border-t border-amber-600/15 space-y-1.5 text-sm">
             <div class="muted-text font-semibold">Key Phrases &amp; Patterns to Remember:</div>
-            <div class="space-y-1">${rows}</div>
+            <div class="space-y-1.5">${rows}</div>
           </div>
         `;
       }
 
       function renderSimpleEnglishCard(partOfSpeech, definitionText, extraHtml = '') {
         return `
-          <div data-lang-block="en-def" class="p-2.5 rounded-2xl bg-amber-600/10 border border-amber-600/20 space-y-1">
-            <div class="text-[11px] font-semibold uppercase tracking-wide tone-amber">Simple English Definition${partOfSpeech ? ` (${escapeHtml(partOfSpeech)})` : ''}</div>
-            <div class="leading-relaxed">${escapeHtml(definitionText)}</div>
+          <div data-lang-block="en-def" class="p-3 rounded-2xl bg-amber-600/10 border border-amber-600/20 space-y-1.5">
+            <div class="text-xs font-semibold uppercase tracking-wide tone-amber">Simple English Definition${partOfSpeech ? ` (${escapeHtml(partOfSpeech)})` : ''}</div>
+            <div class="text-[17px] leading-relaxed">${escapeHtml(definitionText)}</div>
             ${extraHtml}
           </div>
         `;
@@ -4224,16 +4264,16 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
       function renderContextExplanationCard(explanationText, extraHtml = '', govPhrase = '', targetPhrase = '') {
         const showPhraseBridge = govPhrase && govPhrase.trim().includes(' ');
         const phraseBridgeHtml = showPhraseBridge
-          ? `<div class="px-2 py-1 rounded-xl bg-sky-600/10 border border-sky-700/25 text-xs">
+          ? `<div class="px-2.5 py-1.5 rounded-xl bg-sky-600/10 border border-sky-700/25 text-sm">
                <span class="font-semibold ink-strong">Phrase in sentence:</span>
                <span class="italic font-medium ink-strong">"${highlightTargetInHtml(govPhrase, targetPhrase)}"</span>
              </div>`
           : '';
         return `
-          <div data-lang-block="en-ctx" class="p-2.5 rounded-2xl bg-sky-600/10 border border-sky-600/20 space-y-1.5">
+          <div data-lang-block="en-ctx" class="p-3 rounded-2xl bg-sky-600/10 border border-sky-600/20 space-y-2">
             <div>
-              <div class="text-[11px] font-semibold uppercase tracking-wide tone-sky">Explanation in Context</div>
-              <div class="leading-relaxed mt-0.5">${escapeHtml(explanationText)}</div>
+              <div class="text-xs font-semibold uppercase tracking-wide tone-sky">Explanation in Context</div>
+              <div class="text-[17px] leading-relaxed mt-0.5">${escapeHtml(explanationText)}</div>
             </div>
             ${phraseBridgeHtml}
             ${extraHtml}
@@ -4271,29 +4311,29 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         if (isFullSentence) {
           const headline = cleanMean || cleanDef || ctxExplainText;
           const subDef = cleanDef && meanNorm && !meanNorm.includes(defNorm.slice(0, 18)) && !defNorm.includes(meanNorm.slice(0, 18))
-            ? `<div class="text-xs muted-text mt-1 leading-snug"><strong class="ink-strong">Ý chính:</strong> ${escapeHtml(cleanDef)}</div>`
+            ? `<div class="text-[15px] muted-text mt-1 leading-snug"><strong class="ink-strong">Ý chính:</strong> ${escapeHtml(cleanDef)}</div>`
             : '';
           topHtml = `
-            <div class="text-[11px] font-semibold uppercase tracking-wide tone-emerald">Dịch nghĩa Tiếng Việt (Vietnamese Meaning)</div>
-            <div class="font-semibold text-sm leading-snug mt-0.5">${escapeHtml(headline)}</div>
+            <div class="text-xs font-semibold uppercase tracking-wide tone-emerald">Dịch nghĩa Tiếng Việt (Vietnamese Meaning)</div>
+            <div class="font-semibold text-[17px] leading-snug mt-0.5">${escapeHtml(headline)}</div>
             ${subDef}
           `;
         } else {
           const primaryHeadline = cleanMean || cleanDef;
           const showSecondaryDef = cleanDef && cleanMean && defNorm !== meanNorm && !defNorm.startsWith(meanNorm);
           topHtml = `
-            <div class="text-[11px] font-semibold uppercase tracking-wide tone-emerald">Định nghĩa Tiếng Việt (Vietnamese Definition)</div>
-            <div class="font-semibold text-sm leading-snug mt-0.5">${escapeHtml(primaryHeadline)}</div>
-            ${showSecondaryDef ? `<div class="text-xs leading-relaxed mt-1">${escapeHtml(cleanDef)}</div>` : ''}
+            <div class="text-xs font-semibold uppercase tracking-wide tone-emerald">Định nghĩa Tiếng Việt (Vietnamese Definition)</div>
+            <div class="font-semibold text-[17px] leading-snug mt-0.5">${escapeHtml(primaryHeadline)}</div>
+            ${showSecondaryDef ? `<div class="text-[15px] leading-relaxed mt-1">${escapeHtml(cleanDef)}</div>` : ''}
           `;
         }
 
         return `
-          <div data-lang-block="vi" class="p-2.5 rounded-2xl bg-emerald-600/10 border border-emerald-600/20 space-y-1.5">
+          <div data-lang-block="vi" class="p-3 rounded-2xl bg-emerald-600/10 border border-emerald-600/20 space-y-2">
             <div>${topHtml}</div>
-            <div class="pt-1.5 border-t border-emerald-600/15">
-              <div class="text-[11px] font-semibold uppercase tracking-wide tone-emerald">Giải thích trong ngữ cảnh (Tiếng Việt)</div>
-              <div class="text-sm leading-relaxed mt-0.5 whitespace-pre-line">${escapeHtml(ctxExplainText)}</div>
+            <div class="pt-2 border-t border-emerald-600/15">
+              <div class="text-xs font-semibold uppercase tracking-wide tone-emerald">Giải thích trong ngữ cảnh (Tiếng Việt)</div>
+              <div class="text-[16px] leading-relaxed mt-1 whitespace-pre-line">${escapeHtml(ctxExplainText)}</div>
             </div>
           </div>
         `;
@@ -4716,6 +4756,19 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         } catch (_) {}
       }
 
+      let aiPanelSwipeDismissTimer = null;
+      function resetAiPanelSwipeTransform() {
+        if (aiPanelSwipeDismissTimer) {
+          clearTimeout(aiPanelSwipeDismissTimer);
+          aiPanelSwipeDismissTimer = null;
+        }
+        if (!el.aiPanel) return;
+        el.aiPanel.style.transition = '';
+        el.aiPanel.style.transform = '';
+        el.aiPanel.style.opacity = '';
+        el.aiPanel.style.willChange = '';
+      }
+
       let activeLookupId = 0;
       async function triggerExplanation(phrase, contextSentence, isFullSentence = false) {
         if (!phrase) return;
@@ -4738,7 +4791,10 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
           webllm: preferred === 'webllm' ? 'Local Qwen2.5 (On-Device)' : 'Local Qwen2.5 (Fallback)'
         };
 
+        resetAiPanelSwipeTransform();
         el.aiPanel.classList.remove('hidden');
+        const aiPanelBodyEl = document.getElementById('ai-panel-body');
+        if (aiPanelBodyEl) aiPanelBodyEl.scrollTop = 0;
         el.aiTargetPhrase.textContent = isFullSentence ? 'Sentence Context' : phrase;
         if (el.aiPhoneticBadge) {
           el.aiPhoneticBadge.textContent = '';
@@ -4833,7 +4889,7 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         } catch (finalErr) {
           if (myLookupId !== activeLookupId) return;
           el.aiSourceLabel.textContent = 'AI Engine Error';
-          el.aiResult.innerHTML = `<div class="p-3 rounded-xl border border-red-600/30 bg-red-600/10 tone-red text-xs">${escapeHtml(finalErr.message || 'Could not generate explanation via Cloud API or Local WebLLM. Please check your API key or Load Local WebLLM.')}</div>`;
+          el.aiResult.innerHTML = `<div class="p-3 rounded-xl border border-red-600/30 bg-red-600/10 tone-red text-sm">${escapeHtml(finalErr.message || 'Could not generate explanation via Cloud API or Local WebLLM. Please check your API key or Load Local WebLLM.')}</div>`;
         } finally {
           if (myLookupId === activeLookupId) {
             el.aiLoading.classList.add('hidden');
@@ -4903,6 +4959,7 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
       }
 
       function dismissAiPanel() {
+        resetAiPanelSwipeTransform();
         if (el.aiPanel.classList.contains('hidden')) return;
         activeLookupId++;
         abortActiveLocalWebLlmGeneration();
@@ -5169,6 +5226,132 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
       el.btnCloseAi.addEventListener('click', () => {
         dismissAiPanel();
       });
+
+      // Smooth mobile swipe-down-to-dismiss gesture on AI Definition / Explanation Bottom Sheet
+      (function initAiPanelSwipeToDismiss() {
+        const panel = el.aiPanel;
+        if (!panel) return;
+        const bodyEl = document.getElementById('ai-panel-body');
+        const swipe = {
+          active: false,
+          isDragging: false,
+          startedOnHandleOrHeader: false,
+          startX: 0,
+          startY: 0,
+          startTime: 0,
+          currentDy: 0,
+          snapTimer: null
+        };
+
+        const clearSnapTimer = () => {
+          if (swipe.snapTimer) {
+            clearTimeout(swipe.snapTimer);
+            swipe.snapTimer = null;
+          }
+        };
+
+        panel.addEventListener('touchstart', (e) => {
+          if (!e.touches || e.touches.length !== 1) return;
+          if (panel.classList.contains('hidden') || aiPanelSwipeDismissTimer) return;
+          const target = e.target;
+          if (target && target.closest && target.closest('input, textarea, select')) return;
+
+          const onHandleOrHeader = Boolean(target && target.closest && target.closest('#ai-panel-drag-handle, #ai-panel-header'));
+          // Inside scrollable panel body, only allow swipe-down when scrolled to the very top
+          if (!onHandleOrHeader && bodyEl && bodyEl.scrollTop > 1) {
+            swipe.active = false;
+            return;
+          }
+
+          clearSnapTimer();
+          const touch = e.touches[0];
+          swipe.active = true;
+          swipe.isDragging = false;
+          swipe.startedOnHandleOrHeader = onHandleOrHeader;
+          swipe.startX = touch.clientX;
+          swipe.startY = touch.clientY;
+          swipe.startTime = performance.now();
+          swipe.currentDy = 0;
+        }, { passive: true });
+
+        panel.addEventListener('touchmove', (e) => {
+          if (!swipe.active || !e.touches || e.touches.length !== 1) return;
+          const touch = e.touches[0];
+          const dx = touch.clientX - swipe.startX;
+          const dy = touch.clientY - swipe.startY;
+
+          if (!swipe.isDragging) {
+            // Abort swipe-down if user is scrolling up or swiping horizontally
+            if (dy < -6 || (Math.abs(dx) > Math.abs(dy) * 1.15 && Math.abs(dx) > 8)) {
+              swipe.active = false;
+              return;
+            }
+            const threshold = swipe.startedOnHandleOrHeader ? 8 : 10;
+            if (dy > threshold && dy > Math.abs(dx)) {
+              if (!swipe.startedOnHandleOrHeader && bodyEl && bodyEl.scrollTop > 1) {
+                swipe.active = false;
+                return;
+              }
+              swipe.isDragging = true;
+              panel.style.transition = 'none';
+              panel.style.willChange = 'transform, opacity';
+            } else {
+              return;
+            }
+          }
+
+          // Prevent iOS Safari rubber-band background scroll while dragging the sheet down
+          if (e.cancelable) e.preventDefault();
+          const offset = Math.max(0, dy);
+          swipe.currentDy = offset;
+          const panelHeight = Math.max(panel.offsetHeight || 320, 220);
+          const opacity = Math.max(0.25, 1 - (offset / (panelHeight * 1.15)));
+          panel.style.transform = `translate3d(0, ${offset}px, 0)`;
+          panel.style.opacity = opacity.toFixed(3);
+        }, { passive: false });
+
+        const finishSwipe = (cancelled = false) => {
+          if (!swipe.active) return;
+          const wasDragging = swipe.isDragging;
+          const dy = swipe.currentDy;
+          const dt = Math.max(1, performance.now() - swipe.startTime);
+          const velocity = dy / dt; // px per ms
+
+          swipe.active = false;
+          swipe.isDragging = false;
+          swipe.currentDy = 0;
+
+          if (!wasDragging) return;
+
+          const shouldDismiss = !cancelled && (dy >= 75 || (dy >= 38 && velocity >= 0.45));
+          if (shouldDismiss) {
+            panel.style.transition = 'transform 180ms cubic-bezier(0.22, 1, 0.36, 1), opacity 160ms ease-out';
+            panel.style.transform = 'translate3d(0, 105%, 0)';
+            panel.style.opacity = '0';
+            aiPanelSwipeDismissTimer = setTimeout(() => {
+              aiPanelSwipeDismissTimer = null;
+              dismissAiPanel();
+            }, 180);
+          } else {
+            panel.style.transition = 'transform 200ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease-out';
+            panel.style.transform = 'translate3d(0, 0, 0)';
+            panel.style.opacity = '1';
+            clearSnapTimer();
+            swipe.snapTimer = setTimeout(() => {
+              swipe.snapTimer = null;
+              if (!swipe.isDragging && !aiPanelSwipeDismissTimer) {
+                panel.style.transition = '';
+                panel.style.transform = '';
+                panel.style.opacity = '';
+                panel.style.willChange = '';
+              }
+            }, 210);
+          }
+        };
+
+        panel.addEventListener('touchend', () => finishSwipe(false), { passive: true });
+        panel.addEventListener('touchcancel', () => finishSwipe(true), { passive: true });
+      })();
 
       if (el.btnCopyAi) {
         el.btnCopyAi.addEventListener('click', async () => {
