@@ -5660,18 +5660,85 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         el.btnPronounce.classList.toggle('ring-amber-500', isLoading);
       }
 
-      // iOS Safari Web Audio API Context + Shared <audio> Fallback
-      // Web Audio API (`AudioContext.decodeAudioData`) plays MP3 & WAV ArrayBuffers reliably on iPhone/iPad even after async fetch() calls!
+      // iOS Safari + iPhone Silent-Mode Audio Playback Engine
+      // - Sets navigator.audioSession.type = 'playback' (iOS 17+) to bypass the hardware Silent switch
+      // - Mounts unmuted <audio playsinline> elements in DOM so iOS routes audio through Playback category (works in Silent Mode!)
+      // - Prefers HTMLAudioElement FIRST for TTS blobs/MP3s, with Web Audio API as fallback
       let sharedAudioCtx = null;
       let activeBufferSource = null;
-      const sharedTtsAudio = new Audio();
-      sharedTtsAudio.playsInline = true;
       let currentObjectUrl = null;
+      let activeUtteranceRef = null;
+      let silentKeepaliveTimer = null;
+
+      const SILENT_WAV_DATA_URI = 'data:audio/wav;base64,UklGRsQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YaAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA';
+
+      const sharedTtsAudio = document.createElement('audio');
+      sharedTtsAudio.playsInline = true;
+      sharedTtsAudio.setAttribute('playsinline', '');
+      sharedTtsAudio.setAttribute('webkit-playsinline', '');
+      sharedTtsAudio.preload = 'auto';
+      sharedTtsAudio.muted = false;
+      sharedTtsAudio.volume = 1.0;
+      sharedTtsAudio.style.display = 'none';
+      document.body.appendChild(sharedTtsAudio);
+
+      // Dedicated silent-PCM keepalive <audio> element that keeps iOS AVAudioSession in Playback mode (bypasses Silent switch during Web Speech / WebAudio)
+      const iosSessionKeepaliveAudio = document.createElement('audio');
+      iosSessionKeepaliveAudio.playsInline = true;
+      iosSessionKeepaliveAudio.setAttribute('playsinline', '');
+      iosSessionKeepaliveAudio.setAttribute('webkit-playsinline', '');
+      iosSessionKeepaliveAudio.loop = true;
+      iosSessionKeepaliveAudio.muted = false;
+      iosSessionKeepaliveAudio.volume = 1.0;
+      iosSessionKeepaliveAudio.src = SILENT_WAV_DATA_URI;
+      iosSessionKeepaliveAudio.style.display = 'none';
+      document.body.appendChild(iosSessionKeepaliveAudio);
 
       let iosHtmlAudioUnlocked = false;
-      const SILENT_WAV_DATA_URI = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+      let iosSpeechUnlocked = false;
 
-      function unlockSharedAudioOnTap() {
+      function ensureIosPlaybackAudioSession() {
+        try {
+          if (navigator.audioSession && navigator.audioSession.type !== 'playback') {
+            navigator.audioSession.type = 'playback';
+          }
+        } catch (_) {}
+      }
+
+      function startSilentModeKeepalive(maxDurationMs = 20000) {
+        ensureIosPlaybackAudioSession();
+        if (silentKeepaliveTimer) {
+          clearTimeout(silentKeepaliveTimer);
+          silentKeepaliveTimer = null;
+        }
+        try {
+          iosSessionKeepaliveAudio.muted = false;
+          iosSessionKeepaliveAudio.volume = 1.0;
+          if (iosSessionKeepaliveAudio.paused) {
+            const p = iosSessionKeepaliveAudio.play();
+            if (p && typeof p.catch === 'function') p.catch(() => {});
+          }
+        } catch (_) {}
+        silentKeepaliveTimer = setTimeout(stopSilentModeKeepalive, maxDurationMs);
+      }
+
+      function stopSilentModeKeepalive() {
+        if (silentKeepaliveTimer) {
+          clearTimeout(silentKeepaliveTimer);
+          silentKeepaliveTimer = null;
+        }
+        try {
+          if (!iosSessionKeepaliveAudio.paused) {
+            iosSessionKeepaliveAudio.pause();
+            iosSessionKeepaliveAudio.currentTime = 0;
+          }
+        } catch (_) {}
+      }
+
+      function unlockSharedAudioOnTap(forImmediateSpeak = false) {
+        ensureIosPlaybackAudioSession();
+
+        // 1. Unlock Web Audio API context synchronously on user tap
         try {
           const AudioCtx = window.AudioContext || window.webkitAudioContext;
           if (AudioCtx) {
@@ -5679,7 +5746,6 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
             if (sharedAudioCtx.state === 'suspended') {
               sharedAudioCtx.resume().catch(() => {});
             }
-            // Play 1-frame silent buffer to unlock iOS WebAudio hardware channel synchronously on tap
             const buf = sharedAudioCtx.createBuffer(1, 1, 22050);
             const src = sharedAudioCtx.createBufferSource();
             src.buffer = buf;
@@ -5688,50 +5754,67 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
           }
         } catch (_) {}
 
-        // Prime shared HTML5 <audio> element once on first user tap so iOS Safari allows async TTS playback
-        if (!iosHtmlAudioUnlocked) {
+        // 2. Prime UNMUTED sharedTtsAudio synchronously inside the tap gesture so iOS allows playback after async fetch() AND switches to Playback (Silent-Mode-safe) category
+        if (!iosHtmlAudioUnlocked || forImmediateSpeak) {
           iosHtmlAudioUnlocked = true;
           try {
-            if (sharedTtsAudio.paused && !sharedTtsAudio.src) {
-              sharedTtsAudio.muted = true;
+            sharedTtsAudio.muted = false;
+            sharedTtsAudio.volume = 1.0;
+            if (forImmediateSpeak || sharedTtsAudio.paused) {
+              sharedTtsAudio.onended = null;
+              sharedTtsAudio.onerror = null;
               sharedTtsAudio.src = SILENT_WAV_DATA_URI;
               const p = sharedTtsAudio.play();
-              if (p && typeof p.then === 'function') {
-                p.then(() => {
-                  try {
-                    sharedTtsAudio.pause();
-                    sharedTtsAudio.currentTime = 0;
-                    sharedTtsAudio.muted = false;
-                  } catch (_) {}
-                }).catch(() => {
-                  sharedTtsAudio.muted = false;
-                });
-              } else {
-                sharedTtsAudio.muted = false;
+              if (p && typeof p.catch === 'function') p.catch(() => {});
+            }
+          } catch (_) {}
+          try {
+            iosSessionKeepaliveAudio.muted = false;
+            iosSessionKeepaliveAudio.volume = 1.0;
+            if (iosSessionKeepaliveAudio.paused) {
+              const kp = iosSessionKeepaliveAudio.play();
+              if (kp && typeof kp.then === 'function') {
+                kp.then(() => {
+                  if (!silentKeepaliveTimer) {
+                    try { iosSessionKeepaliveAudio.pause(); } catch (_) {}
+                  }
+                }).catch(() => {});
               }
             }
-          } catch (_) {
-            sharedTtsAudio.muted = false;
-          }
+          } catch (_) {}
+        }
+
+        // 3. Prime Web Speech API synchronously once on first user tap so iOS Safari allows async fallback speech
+        if (!iosSpeechUnlocked && 'speechSynthesis' in window) {
+          iosSpeechUnlocked = true;
           try {
-            if ('speechSynthesis' in window && typeof window.speechSynthesis.getVoices === 'function') {
+            if (typeof window.speechSynthesis.getVoices === 'function') {
               window.speechSynthesis.getVoices();
+            }
+            if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
+              const primer = new SpeechSynthesisUtterance(' ');
+              primer.volume = 0;
+              primer.rate = 10;
+              primer.lang = 'en-US';
+              window.speechSynthesis.speak(primer);
             }
           } catch (_) {}
         }
       }
 
-      // Automatically unlock iOS Safari audio channels on the user's very first tap/gesture
+      // Automatically unlock iOS Safari audio & Playback session on the user's very first tap/gesture
       (function bindIosFirstTapAudioUnlock() {
+        ensureIosPlaybackAudioSession();
         const events = ['touchstart', 'pointerdown', 'click'];
         const handleFirstTap = () => {
-          unlockSharedAudioOnTap();
+          unlockSharedAudioOnTap(false);
           events.forEach((ev) => document.removeEventListener(ev, handleFirstTap, true));
         };
         events.forEach((ev) => document.addEventListener(ev, handleFirstTap, { capture: true, passive: true }));
       })();
 
-      function stopAllActiveSpeech() {
+      function stopAllActiveSpeech(preserveSharedAudioElement = false) {
+        stopSilentModeKeepalive();
         if (activeBufferSource) {
           try {
             activeBufferSource.onended = null;
@@ -5739,11 +5822,13 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
           } catch (_) {}
           activeBufferSource = null;
         }
-        try {
-          sharedTtsAudio.onended = null;
-          sharedTtsAudio.onerror = null;
-          sharedTtsAudio.pause();
-        } catch (_) {}
+        if (!preserveSharedAudioElement) {
+          try {
+            sharedTtsAudio.onended = null;
+            sharedTtsAudio.onerror = null;
+            sharedTtsAudio.pause();
+          } catch (_) {}
+        }
         if (shadowState.playbackAudio) {
           try {
             shadowState.playbackAudio.onended = null;
@@ -5751,49 +5836,66 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
           } catch (_) {}
           shadowState.playbackAudio = null;
         }
-        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+        activeUtteranceRef = null;
+        if ('speechSynthesis' in window && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) {
+          try { window.speechSynthesis.cancel(); } catch (_) {}
+        }
       }
 
       async function playArrayBufferAudio(arrayBuffer, mimeType, onEndCallback) {
+        ensureIosPlaybackAudioSession();
+
+        // Primary: Play via gesture-unlocked, unmuted HTMLAudioElement FIRST (natively bypasses iPhone Silent Mode!)
+        const blob = new Blob([arrayBuffer], { type: mimeType || 'audio/mpeg' });
+        const url = URL.createObjectURL(blob);
+        try {
+          await playBlobOrUrl(url, true, onEndCallback);
+          return true;
+        } catch (htmlAudioErr) {
+          try { URL.revokeObjectURL(url); } catch (_) {}
+          console.warn('HTMLAudioElement playback failed, trying WebAudio fallback:', htmlAudioErr);
+        }
+
+        // Fallback: Web Audio API (with Playback audioSession + silent-mode keepalive)
         stopAllActiveSpeech();
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
         if (AudioCtx) {
-          try {
-            if (!sharedAudioCtx) sharedAudioCtx = new AudioCtx();
-            if (sharedAudioCtx.state === 'suspended') await sharedAudioCtx.resume();
-            // Clone buffer because decodeAudioData detaches the input ArrayBuffer
-            const copyBuf = arrayBuffer.slice(0);
-            const audioBuffer = await new Promise((res, rej) => {
-              sharedAudioCtx.decodeAudioData(copyBuf, res, rej);
-            });
-            const source = sharedAudioCtx.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(sharedAudioCtx.destination);
-            activeBufferSource = source;
-            source.onended = () => {
-              if (activeBufferSource === source) activeBufferSource = null;
-              if (onEndCallback) onEndCallback();
-            };
-            source.start(0);
-            return true;
-          } catch (webAudioErr) {
-            console.warn('WebAudio decode fallback to HTMLAudioElement:', webAudioErr);
-          }
+          if (!sharedAudioCtx) sharedAudioCtx = new AudioCtx();
+          if (sharedAudioCtx.state === 'suspended') await sharedAudioCtx.resume();
+          const copyBuf = arrayBuffer.slice(0);
+          const audioBuffer = await new Promise((res, rej) => {
+            sharedAudioCtx.decodeAudioData(copyBuf, res, rej);
+          });
+          startSilentModeKeepalive(Math.max(4000, Math.ceil((audioBuffer.duration || 5) * 1000) + 1500));
+          const source = sharedAudioCtx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(sharedAudioCtx.destination);
+          activeBufferSource = source;
+          source.onended = () => {
+            if (activeBufferSource === source) activeBufferSource = null;
+            stopSilentModeKeepalive();
+            if (onEndCallback) onEndCallback();
+          };
+          source.start(0);
+          return true;
         }
-        const blob = new Blob([arrayBuffer], { type: mimeType || 'audio/mpeg' });
-        const url = URL.createObjectURL(blob);
-        return playBlobOrUrl(url, true, onEndCallback);
+        throw new Error('Browser could not play returned audio stream');
       }
 
       function playBlobOrUrl(audioSrc, isObjectUrl, onEndCallback) {
         return new Promise((resolve, reject) => {
-          stopAllActiveSpeech();
-          if (currentObjectUrl) {
+          ensureIosPlaybackAudioSession();
+          // Preserve sharedTtsAudio gesture token instead of killing it before swapping src
+          stopAllActiveSpeech(true);
+          if (currentObjectUrl && currentObjectUrl !== audioSrc) {
             try { URL.revokeObjectURL(currentObjectUrl); } catch (_) {}
             currentObjectUrl = null;
           }
           if (isObjectUrl) currentObjectUrl = audioSrc;
 
+          sharedTtsAudio.onended = null;
+          sharedTtsAudio.onerror = null;
+          sharedTtsAudio.muted = false;
           sharedTtsAudio.volume = 1.0;
           sharedTtsAudio.src = audioSrc;
           activePronounceAudio = sharedTtsAudio;
@@ -5821,6 +5923,8 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
             }
             finish(new Error('Browser could not decode or play returned audio stream'));
           };
+
+          try { sharedTtsAudio.load(); } catch (_) {}
           const playPromise = sharedTtsAudio.play();
           if (playPromise !== undefined) {
             playPromise.then(() => finish()).catch(err => finish(err));
@@ -6173,13 +6277,58 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         return [...pool].sort((a, b) => scoreVoice(b) - scoreVoice(a))[0];
       }
 
+      // iOS-safe Web Speech API playback helper (keeps AVAudioSession in Playback mode for Silent switch, prevents Safari cancel-swallow & GC bugs)
+      function speakViaSystemVoice(cleanText, onEndCallback) {
+        if (!('speechSynthesis' in window)) return false;
+        ensureIosPlaybackAudioSession();
+        const estimatedMs = Math.max(4500, Math.min(30000, cleanText.length * 115 + 2500));
+        startSilentModeKeepalive(estimatedMs);
+
+        const triggerUtterance = () => {
+          try {
+            const utter = new SpeechSynthesisUtterance(cleanText);
+            const bestVoice = pickBestInstalledUsVoice();
+            if (bestVoice) utter.voice = bestVoice;
+            utter.lang = 'en-US';
+            utter.rate = 0.96;
+            utter.volume = 1.0;
+            activeUtteranceRef = utter;
+            utter.onend = () => {
+              if (activeUtteranceRef === utter) activeUtteranceRef = null;
+              stopSilentModeKeepalive();
+              if (onEndCallback) onEndCallback();
+            };
+            utter.onerror = () => {
+              if (activeUtteranceRef === utter) activeUtteranceRef = null;
+              stopSilentModeKeepalive();
+            };
+            if (typeof window.speechSynthesis.resume === 'function') {
+              try { window.speechSynthesis.resume(); } catch (_) {}
+            }
+            window.speechSynthesis.speak(utter);
+          } catch (_) {
+            stopSilentModeKeepalive();
+          }
+        };
+
+        // Avoid classic iOS Safari bug where cancel() + immediate speak() swallows the new utterance
+        if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+          try { window.speechSynthesis.cancel(); } catch (_) {}
+          setTimeout(triggerUtterance, 65);
+        } else {
+          triggerUtterance();
+        }
+        return true;
+      }
+
       // Main speech dispatcher
       async function speakUsText(text, onEndCallback, preferredHumanMp3 = '', strictCloudTest = false) {
         if (!text) return;
         const clean = text.trim();
 
-        unlockSharedAudioOnTap();
+        // IMPORTANT: Stop previous speech FIRST, then unlock synchronously inside the tap gesture so stopAllActiveSpeech never aborts the iOS unlock!
         stopAllActiveSpeech();
+        unlockSharedAudioOnTap(true);
 
         const pref = state.settings.ttsProvider || 'auto';
         const aiPref = state.settings.aiProvider || 'auto';
@@ -6240,7 +6389,7 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
             if (chain.length === 0) throw new Error('Please enter your ElevenLabs, OpenAI, or Groq API key first.');
           }
 
-          // Fallback 1: Real Human Studio Recording MP3 (for single words)
+          // Fallback 1: Real Human Studio Recording MP3 (for single words — plays via HTMLAudioElement, bypasses iPhone Silent Mode)
           if (!/\s/.test(clean) && navigator.onLine) {
             let humanUrl = preferredHumanMp3;
             if (!humanUrl) {
@@ -6262,15 +6411,8 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
             }
           }
 
-          // Fallback 2: Best installed Apple Enhanced / Siri US voice
-          if ('speechSynthesis' in window) {
-            const utter = new SpeechSynthesisUtterance(clean);
-            const bestVoice = pickBestInstalledUsVoice();
-            if (bestVoice) utter.voice = bestVoice;
-            utter.lang = 'en-US';
-            utter.rate = 0.96;
-            if (onEndCallback) utter.onend = onEndCallback;
-            window.speechSynthesis.speak(utter);
+          // Fallback 2: Best installed Apple Enhanced / Siri US voice (with Silent-Mode Playback session keepalive)
+          if (speakViaSystemVoice(clean, onEndCallback)) {
             return 'Apple System Voice';
           }
         } finally {
@@ -6394,6 +6536,7 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
             shadowState.isRecording = false;
             stream.getTracks().forEach(t => t.stop());
             shadowState.mediaStream = null;
+            ensureIosPlaybackAudioSession();
             el.btnShadowRecord.textContent = '2. Record Yourself';
             el.btnShadowRecord.classList.remove('bg-red-600', 'text-white');
             if (shadowState.recordedAudioUrl) URL.revokeObjectURL(shadowState.recordedAudioUrl);
@@ -6412,7 +6555,11 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
       el.btnShadowPlayback.addEventListener('click', () => {
         if (!shadowState.recordedAudioUrl) return;
         stopAllActiveSpeech();
+        ensureIosPlaybackAudioSession();
         const audio = new Audio(shadowState.recordedAudioUrl);
+        audio.playsInline = true;
+        audio.muted = false;
+        audio.volume = 1.0;
         shadowState.playbackAudio = audio;
         el.shadowStatus.textContent = 'Playing your recording...';
         audio.onended = () => {
