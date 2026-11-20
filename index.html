@@ -242,6 +242,29 @@
       line-height: 1.48;
     }
 
+    /* Read Along Audiobook Sync — active sentence highlight & compact bottom player */
+    .word-token.read-along-active {
+      background: rgba(14, 165, 233, 0.16);
+      border-radius: 3px;
+      box-decoration-break: clone;
+      -webkit-box-decoration-break: clone;
+    }
+    body[data-theme="quiet"] .word-token.read-along-active,
+    body[data-theme="midnight"] .word-token.read-along-active,
+    body[data-theme="obsidian"] .word-token.read-along-active {
+      background: rgba(56, 189, 248, 0.24);
+    }
+    .word-token.read-along-active.active-word {
+      background: var(--reader-highlight);
+    }
+    #read-along-bar {
+      padding-bottom: max(0.6rem, env(safe-area-inset-bottom));
+    }
+    #ra-scrubber {
+      height: 5px;
+      accent-color: var(--reader-accent);
+    }
+
     /* Per-section 2-column spread so each chapter flows cleanly without scrolling back up across the whole book */
     @media (min-width: 900px) {
       .reader-prose.two-col-spread {
@@ -513,6 +536,12 @@
           <span class="sm:hidden">Import</span>
         </label>
         <input id="epub-file-input" type="file" accept=".epub,.pdf,application/epub+zip,application/pdf" class="hidden" />
+
+        <button id="btn-read-along" type="button" title="Read Along Audiobook" class="relative inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-themed hover-surface transition-colors" aria-label="Read Along Audiobook">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 18v-6a9 9 0 0118 0v6"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-3a2 2 0 012-2h3zM3 19a2 2 0 002 2h1a2 2 0 002-2v-3a2 2 0 00-2-2H3z"/></svg>
+          <span class="hidden md:inline">Listen</span>
+          <span id="read-along-dot" class="hidden absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white/80"></span>
+        </button>
 
         <button id="btn-appearance" type="button" title="Text Size & Background" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-themed hover-surface transition-colors" aria-label="Appearance Settings">
           <span class="font-serif text-sm leading-none">Aa</span>
@@ -789,6 +818,9 @@
         <button id="btn-open-shadow" type="button" class="px-2.5 py-1 rounded-lg bg-amber-600/15 tone-amber border border-amber-600/25 text-xs font-semibold hover:bg-amber-600/25 transition-colors">
           Shadow Sentence
         </button>
+        <button id="btn-ra-play-from-ai" type="button" class="hidden px-2.5 py-1 rounded-lg bg-sky-600/15 tone-sky border border-sky-600/25 text-xs font-semibold hover:bg-sky-600/25 transition-colors">
+          Play Audio Here
+        </button>
       </div>
 
       <!-- Sentence Shadowing & Voice-Record Comparison -->
@@ -1028,6 +1060,179 @@
     </div>
   </div>
 
+  <!-- Read Along Compact Floating Bottom Audio Player Bar -->
+  <section id="read-along-bar" aria-label="Read Along Audio Player" class="hidden fixed bottom-0 left-0 right-0 sm:left-1/2 sm:-translate-x-1/2 sm:bottom-4 sm:w-[540px] max-w-full z-30 rounded-t-2xl sm:rounded-2xl border shadow-2xl surface-panel px-4 pt-2.5 space-y-2 transition-all">
+    <!-- Top Info & Utility Row -->
+    <div class="flex items-center justify-between gap-2 text-xs">
+      <div class="flex items-center gap-1.5 min-w-0">
+        <span id="ra-sync-badge" class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-600/15 tone-amber border border-amber-600/25 shrink-0">Est. Sync</span>
+        <span id="ra-track-title" class="font-semibold truncate ink-strong">No audio loaded</span>
+      </div>
+      <div class="flex items-center gap-1 shrink-0">
+        <button id="btn-ra-follow" type="button" title="Toggle auto-scroll to spoken sentence" class="px-2 py-0.5 rounded-lg border border-sky-600/35 bg-sky-600/15 tone-sky text-[11px] font-semibold transition-colors">
+          Follow
+        </button>
+        <button id="btn-ra-open-manager" type="button" title="Audio Tracks & Whisper Sync" class="p-1.5 rounded-lg hover-surface muted-text" aria-label="Audio Tracks and Sync">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+        </button>
+        <button id="btn-ra-hide-bar" type="button" title="Hide player bar (audio keeps playing)" class="p-1.5 rounded-lg hover-surface muted-text" aria-label="Hide audio bar">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Scrubber Row -->
+    <div class="flex items-center gap-2.5">
+      <span id="ra-time-current" class="text-[11px] font-mono tabular-nums muted-text w-12 text-right shrink-0">00:00</span>
+      <input id="ra-scrubber" type="range" min="0" max="100" step="0.1" value="0" aria-label="Audio progress" class="flex-1 cursor-pointer" />
+      <span id="ra-time-total" class="text-[11px] font-mono tabular-nums muted-text w-12 shrink-0">00:00</span>
+    </div>
+
+    <!-- Playback Controls Row -->
+    <div class="flex items-center justify-between gap-2 pb-0.5">
+      <button id="btn-ra-speed" type="button" title="Playback Speed (0.75x - 2x)" class="px-2.5 py-1.5 rounded-xl border border-themed text-xs font-bold tabular-nums hover-surface transition-colors min-w-[54px]">
+        1.0&times;
+      </button>
+
+      <div class="flex items-center gap-2.5">
+        <button id="btn-ra-back-15" type="button" title="Skip back 15 seconds" aria-label="Skip back 15 seconds" class="inline-flex items-center justify-center gap-0.5 px-2.5 py-1.5 rounded-xl border border-themed text-xs font-semibold hover-surface active:scale-95 transition-all">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0019 16V8a1 1 0 00-1.6-.8l-5.333 4zM4.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0011 16V8a1 1 0 00-1.6-.8l-5.334 4z"/></svg>
+          <span>15s</span>
+        </button>
+
+        <button id="btn-ra-play-pause" type="button" title="Play / Pause" aria-label="Play Read Along Audio" class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-amber-600 text-white shadow-md hover:bg-amber-700 active:scale-95 transition-all">
+          <svg id="ra-icon-play" class="w-5 h-5 translate-x-[1px]" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5.14v14l11-7-11-7z"/></svg>
+          <svg id="ra-icon-pause" class="hidden w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+        </button>
+
+        <button id="btn-ra-fwd-15" type="button" title="Skip forward 15 seconds" aria-label="Skip forward 15 seconds" class="inline-flex items-center justify-center gap-0.5 px-2.5 py-1.5 rounded-xl border border-themed text-xs font-semibold hover-surface active:scale-95 transition-all">
+          <span>15s</span>
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11.933 12.8a1 1 0 000-1.6L6.6 7.2A1 1 0 005 8v8a1 1 0 001.6.8l5.333-4zM19.933 12.8a1 1 0 000-1.6l-5.333-4A1 1 0 0013 8v8a1 1 0 001.6.8l5.333-4z"/></svg>
+        </button>
+      </div>
+
+      <button id="btn-ra-quick-sync" type="button" title="Anchor current audio time to the sentence on screen" class="px-2.5 py-1.5 rounded-xl border border-themed text-[11px] font-semibold hover-surface transition-colors">
+        Sync Here
+      </button>
+    </div>
+  </section>
+
+  <!-- Read Along Audiobook Upload & Sync Modal -->
+  <div id="read-along-modal-backdrop" class="hidden fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4">
+    <div class="w-full max-w-lg rounded-2xl border shadow-2xl p-5 surface-panel flex flex-col max-h-[88vh]">
+      <div class="flex items-center justify-between mb-3 shrink-0">
+        <div>
+          <h3 class="text-sm font-bold">Read Along Audiobook</h3>
+          <p id="ra-modal-book-label" class="text-[11px] muted-text truncate max-w-[290px]">Attach MP3, M4A, M4B, or WAV &amp; sync to text</p>
+        </div>
+        <button id="btn-close-read-along-modal" type="button" class="p-1.5 rounded-lg hover-surface muted-text" aria-label="Close Read Along settings">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="overflow-y-auto pr-1 space-y-3.5 text-xs flex-1">
+        <!-- Tip Banner -->
+        <div class="p-2.5 rounded-xl bg-sky-600/10 border border-sky-600/20 text-[11px] leading-relaxed">
+          <strong class="ink-strong">How it works:</strong> Single-tap any word for its AI definition. <strong>Double-tap any sentence</strong> to jump the audiobook straight to that spot. Large audio files are saved locally in IndexedDB.
+        </div>
+
+        <!-- Upload Audio Section -->
+        <div class="p-3 rounded-xl border border-themed subtle-surface space-y-2.5">
+          <div class="font-semibold">1. Attach Local Audio File</div>
+          <div class="grid grid-cols-2 gap-1.5">
+            <button id="btn-ra-scope-book" type="button" class="px-2.5 py-2 rounded-xl border border-amber-600 bg-amber-600/15 tone-amber font-semibold transition-colors">
+              Whole Book
+            </button>
+            <button id="btn-ra-scope-chapter" type="button" class="px-2.5 py-2 rounded-xl border border-themed muted-text font-medium hover-surface transition-colors">
+              Specific Chapter
+            </button>
+          </div>
+          <div id="ra-chapter-picker-wrap" class="hidden">
+            <label for="ra-chapter-select" class="block text-[11px] muted-text mb-1">Choose Chapter:</label>
+            <select id="ra-chapter-select" class="w-full px-3 py-2 rounded-xl border border-themed bg-transparent text-base sm:text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
+          </div>
+          <label for="ra-audio-file-input" class="w-full cursor-pointer flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-amber-600 text-white font-semibold hover:bg-amber-700 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v12m0-12l-4 4m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+            Upload Audio (MP3, M4A, M4B, WAV)
+          </label>
+          <input id="ra-audio-file-input" type="file" accept=".mp3,.m4a,.m4b,.wav,audio/mpeg,audio/mp4,audio/x-m4a,audio/wav,audio/*" class="hidden" />
+        </div>
+
+        <!-- Attached Audio Tracks for Current Book -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="font-semibold">2. Attached Tracks for This Book</span>
+            <span id="ra-storage-summary" class="text-[11px] muted-text tabular-nums"></span>
+          </div>
+          <div id="ra-tracks-list" class="space-y-2">
+            <div class="p-3 rounded-xl border border-dashed border-themed text-center muted-text">No audiobook attached yet.</div>
+          </div>
+        </div>
+
+        <!-- Alignment & Calibration Panel (visible when a track is loaded) -->
+        <div id="ra-sync-panel" class="hidden p-3 rounded-xl border border-amber-600/25 bg-amber-600/10 space-y-3">
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <div class="font-semibold ink-strong">3. Audio-to-Text Sync</div>
+              <div id="ra-active-sync-summary" class="text-[11px] muted-text">Estimated Sync ready</div>
+            </div>
+            <span id="ra-modal-sync-pill" class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-600/20 tone-amber">Estimated</span>
+          </div>
+
+          <!-- Option 1: 1-Click Whisper Auto-Align (Groq / OpenAI) -->
+          <div class="space-y-2 pt-1.5 border-t border-amber-600/15">
+            <div class="flex items-center justify-between gap-2">
+              <label for="ra-whisper-provider" class="font-semibold ink-strong">Whisper Auto-Align (Exact Sync)</label>
+              <select id="ra-whisper-provider" class="px-2 py-1 rounded-lg border border-themed bg-transparent text-base sm:text-[11px] font-medium focus:outline-none">
+                <option value="auto">Auto (Groq &rarr; OpenAI)</option>
+                <option value="groq">Groq Whisper (Fastest)</option>
+                <option value="openai">OpenAI Whisper</option>
+              </select>
+            </div>
+            <div class="text-[11px] muted-text leading-snug">
+              Reuses your existing Groq or OpenAI key from AI Settings. Files over 23 MB are automatically chunked and cached in IndexedDB so alignment only runs once.
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="btn-ra-whisper-align" type="button" class="flex-1 py-2 px-3 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition-colors">
+                Auto-Align with Whisper
+              </button>
+              <button id="btn-ra-cancel-align" type="button" class="hidden py-2 px-3 rounded-xl border border-red-600/40 bg-red-600/10 tone-red font-semibold hover:bg-red-600/20">
+                Cancel
+              </button>
+            </div>
+            <div id="ra-align-progress-wrap" class="hidden space-y-1">
+              <div class="h-1.5 rounded-full subtle-surface overflow-hidden">
+                <div id="ra-align-progress-bar" class="h-full bg-emerald-600 transition-all" style="width: 0%"></div>
+              </div>
+              <div id="ra-align-status-text" class="text-[11px] muted-text">Preparing audio...</div>
+            </div>
+          </div>
+
+          <!-- Option 3: Instant Calibration & Offset Fine-Tuning -->
+          <div class="space-y-2 pt-2 border-t border-amber-600/15">
+            <div class="font-semibold ink-strong">Instant Calibration (Offline)</div>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <button id="btn-ra-sync-anchor" type="button" class="px-2.5 py-1.5 rounded-lg border border-themed subtle-surface font-semibold hover-surface transition-colors">
+                Sync to Visible Sentence
+              </button>
+              <button id="btn-ra-reset-sync" type="button" class="px-2.5 py-1.5 rounded-lg border border-themed muted-text hover-surface transition-colors">
+                Reset Calibration
+              </button>
+            </div>
+            <div class="flex items-center justify-between gap-2 pt-1">
+              <span class="muted-text">Fine-tune highlight timing:</span>
+              <div class="flex items-center gap-1.5">
+                <button id="btn-ra-offset-dec" type="button" class="px-2 py-1 rounded-lg border border-themed font-semibold hover-surface">-0.5s</button>
+                <span id="ra-offset-label" class="font-mono tabular-nums font-semibold min-w-[46px] text-center">0.0s</span>
+                <button id="btn-ra-offset-inc" type="button" class="px-2 py-1 rounded-lg border border-themed font-semibold hover-surface">+0.5s</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Notification -->
   <div id="toast" class="hidden fixed top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full shadow-lg bg-neutral-900 text-white text-xs font-medium pointer-events-none"></div>
 
@@ -1212,16 +1417,22 @@
       // ==========================================
       const DB_NAME = 'lumina_epub_db';
       const DB_STORE = 'books';
+      const AUDIO_DB_STORE = 'audiobooks';
+      const DB_VERSION = 2;
       let isRestoringProgress = false;
 
       function openBookDb() {
         return new Promise((resolve, reject) => {
           if (typeof indexedDB === 'undefined') return reject(new Error('No IndexedDB'));
-          const req = indexedDB.open(DB_NAME, 1);
+          const req = indexedDB.open(DB_NAME, DB_VERSION);
           req.onupgradeneeded = (e) => {
             const db = e.target.result;
             if (!db.objectStoreNames.contains(DB_STORE)) {
               db.createObjectStore(DB_STORE, { keyPath: 'id' });
+            }
+            if (!db.objectStoreNames.contains(AUDIO_DB_STORE)) {
+              const audioStore = db.createObjectStore(AUDIO_DB_STORE, { keyPath: 'id' });
+              audioStore.createIndex('bookId', 'bookId', { unique: false });
             }
           };
           req.onsuccess = () => resolve(req.result);
@@ -1245,8 +1456,16 @@
         try {
           const db = await openBookDb();
           await new Promise((resolve, reject) => {
-            const tx = db.transaction(DB_STORE, 'readwrite');
+            const stores = db.objectStoreNames.contains(AUDIO_DB_STORE) ? [DB_STORE, AUDIO_DB_STORE] : [DB_STORE];
+            const tx = db.transaction(stores, 'readwrite');
             tx.objectStore(DB_STORE).delete(bookId);
+            if (db.objectStoreNames.contains(AUDIO_DB_STORE)) {
+              const audioStore = tx.objectStore(AUDIO_DB_STORE);
+              const idxReq = audioStore.index('bookId').getAllKeys(bookId);
+              idxReq.onsuccess = () => {
+                (idxReq.result || []).forEach(k => audioStore.delete(k));
+              };
+            }
             tx.oncomplete = () => resolve();
             tx.onerror = () => reject(tx.error);
           });
@@ -1265,6 +1484,86 @@
         } catch (_) {
           return [];
         }
+      }
+
+      async function saveAudioTrackToDb(record) {
+        const db = await openBookDb();
+        return await new Promise((resolve, reject) => {
+          const tx = db.transaction(AUDIO_DB_STORE, 'readwrite');
+          tx.objectStore(AUDIO_DB_STORE).put(record);
+          tx.oncomplete = () => resolve(record);
+          tx.onerror = () => reject(tx.error);
+        });
+      }
+
+      async function getAudioTracksForBook(bookId) {
+        if (!bookId) return [];
+        try {
+          const db = await openBookDb();
+          if (!db.objectStoreNames.contains(AUDIO_DB_STORE)) return [];
+          return await new Promise((resolve, reject) => {
+            const tx = db.transaction(AUDIO_DB_STORE, 'readonly');
+            const req = tx.objectStore(AUDIO_DB_STORE).index('bookId').getAll(bookId);
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => reject(req.error);
+          });
+        } catch (_) {
+          return [];
+        }
+      }
+
+      async function getAudioTrackById(trackId) {
+        if (!trackId) return null;
+        try {
+          const db = await openBookDb();
+          if (!db.objectStoreNames.contains(AUDIO_DB_STORE)) return null;
+          return await new Promise((resolve, reject) => {
+            const tx = db.transaction(AUDIO_DB_STORE, 'readonly');
+            const req = tx.objectStore(AUDIO_DB_STORE).get(trackId);
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => reject(req.error);
+          });
+        } catch (_) {
+          return null;
+        }
+      }
+
+      async function updateAudioTrackMetaInDb(trackId, patch) {
+        if (!trackId) return null;
+        try {
+          const db = await openBookDb();
+          if (!db.objectStoreNames.contains(AUDIO_DB_STORE)) return null;
+          return await new Promise((resolve, reject) => {
+            const tx = db.transaction(AUDIO_DB_STORE, 'readwrite');
+            const store = tx.objectStore(AUDIO_DB_STORE);
+            const getReq = store.get(trackId);
+            getReq.onsuccess = () => {
+              const cur = getReq.result;
+              if (!cur) return resolve(null);
+              const updated = { ...cur, ...patch, updatedAt: Date.now() };
+              store.put(updated);
+              tx.oncomplete = () => resolve(updated);
+            };
+            getReq.onerror = () => reject(getReq.error);
+            tx.onerror = () => reject(tx.error);
+          });
+        } catch (_) {
+          return null;
+        }
+      }
+
+      async function deleteAudioTrackFromDb(trackId) {
+        if (!trackId) return;
+        try {
+          const db = await openBookDb();
+          if (!db.objectStoreNames.contains(AUDIO_DB_STORE)) return;
+          await new Promise((resolve, reject) => {
+            const tx = db.transaction(AUDIO_DB_STORE, 'readwrite');
+            tx.objectStore(AUDIO_DB_STORE).delete(trackId);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+        } catch (_) {}
       }
 
       function getProgressMap() {
@@ -2580,6 +2879,7 @@
         `).join('');
 
         tokenizeTextNodes(el.chapterBody);
+        if (typeof buildBookSentenceIndex === 'function') buildBookSentenceIndex();
         applySavedWordUnderlines();
         const totalWords = window.epubAllTokens.length;
         const estMinutes = Math.max(1, Math.round(totalWords / 220));
@@ -2591,6 +2891,7 @@
         restoreReadingProgress(book.id);
         seedChapterVocabEncounters(state.currentChapterIdx);
         renderDrawer();
+        if (typeof loadReadAlongForCurrentBook === 'function') loadReadAlongForCurrentBook();
       }
 
       // ==========================================
@@ -4784,6 +5085,7 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
 
         resetAiPanelSwipeTransform();
         el.aiPanel.classList.remove('hidden');
+        if (typeof syncReadAlongBarVisibility === 'function') syncReadAlongBarVisibility();
         const aiPanelBodyEl = document.getElementById('ai-panel-body');
         if (aiPanelBodyEl) aiPanelBodyEl.scrollTop = 0;
         el.aiTargetPhrase.textContent = isFullSentence ? 'Sentence Context' : phrase;
@@ -4796,8 +5098,15 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         el.aiResult.innerHTML = '';
         el.aiLoading.classList.remove('hidden');
         el.btnExplainSentence.classList.toggle('hidden', isFullSentence);
+        const btnRaPlayFromAi = document.getElementById('btn-ra-play-from-ai');
+        if (btnRaPlayFromAi) {
+          btnRaPlayFromAi.classList.toggle('hidden', !(typeof hasReadAlongAudioLoaded === 'function' && hasReadAlongAudioLoaded()));
+        }
 
-        state.currentExplanation = { phrase, contextSentence, summary: '', phonetic: '', audioUrl: '', isFullSentence };
+        const activeSentIdx = (phraseRange.startIdx >= 0 && window.epubAllTokens[phraseRange.startIdx] && window.epubAllTokens[phraseRange.startIdx].dataset.sentIdx !== undefined)
+          ? Number(window.epubAllTokens[phraseRange.startIdx].dataset.sentIdx)
+          : -1;
+        state.currentExplanation = { phrase, contextSentence, summary: '', phonetic: '', audioUrl: '', isFullSentence, sentIdx: activeSentIdx };
         if (!isFullSentence) {
           recordLookupVocabEncounter(phrase);
         }
@@ -4950,11 +5259,16 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         if (sel && sel.removeAllRanges) {
           try { sel.removeAllRanges(); } catch (_) {}
         }
+        if (typeof syncReadAlongBarVisibility === 'function') syncReadAlongBarVisibility();
       }
 
       // Word tap / click:
-      // - Tap 1 word -> shows definition immediately
+      // - Single-tap 1 word -> shows definition immediately
+      // - Double-tap a sentence (within 380ms when Read Along audio is attached) -> jumps audio to that sentence
       // - Tap additional words in the same paragraph/nearby -> expands multi-word selection and updates the definition
+      let lastWordTapSentIdx = -1;
+      let lastWordTapTime = 0;
+
       el.chapterBody.addEventListener('click', (e) => {
         if (slideState.justFinishedSlide) return;
         const selection = window.getSelection();
@@ -4964,11 +5278,33 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         const token = e.target.closest('.word-token');
         if (!token) {
           // Tapped blank space inside chapterBody (outside any word) -> close the definition pop-up
+          lastWordTapSentIdx = -1;
           dismissAiPanel();
           return;
         }
 
         const wIdx = Number(token.dataset.wordIdx ?? -1);
+        const sentIdx = token.dataset.sentIdx !== undefined ? Number(token.dataset.sentIdx) : -1;
+        const now = performance.now();
+
+        // Double-tap a sentence -> jump Read Along audio directly to that sentence
+        if (
+          sentIdx >= 0 &&
+          typeof hasReadAlongAudioLoaded === 'function' &&
+          hasReadAlongAudioLoaded() &&
+          lastWordTapSentIdx === sentIdx &&
+          (now - lastWordTapTime) <= 380
+        ) {
+          lastWordTapSentIdx = -1;
+          lastWordTapTime = 0;
+          dismissAiPanel();
+          if (typeof jumpReadAlongToSentence === 'function') {
+            jumpReadAlongToSentence(sentIdx, true);
+          }
+          return;
+        }
+        lastWordTapSentIdx = sentIdx;
+        lastWordTapTime = now;
 
         // If AI panel is already open and user taps another word nearby in the SAME paragraph, combine into a multi-word phrase
         if (!el.aiPanel.classList.contains('hidden') && phraseRange.startIdx >= 0 && wIdx >= 0) {
@@ -6781,7 +7117,8 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         if (!text) return;
         const clean = text.trim();
 
-        // IMPORTANT: Stop previous speech FIRST, then unlock synchronously inside the tap gesture so stopAllActiveSpeech never aborts the iOS unlock!
+        // IMPORTANT: Pause Read Along & stop previous speech FIRST, then unlock synchronously inside the tap gesture so stopAllActiveSpeech never aborts the iOS unlock!
+        if (typeof pauseReadAlongIfPlaying === 'function') pauseReadAlongIfPlaying();
         stopAllActiveSpeech();
         unlockSharedAudioOnTap(true);
 
@@ -7130,6 +7467,1551 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
             const item = state.savedVocab[currentFlashcardIdx];
             showToast(`"${item.phrase}" → ${getVocabStatusMeta(newStatus).label}`);
           }
+        });
+      }
+
+      // ==========================================
+      // 11b. Read Along Audiobook Sync Engine
+      // ==========================================
+      window.epubSentences = [];
+      const RA_SPEEDS = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+      const RA_PREFS_KEY = 'lumina_read_along_prefs';
+      const RA_MAX_DIRECT_WHISPER_BYTES = 23 * 1024 * 1024;
+      const RA_WHISPER_CHUNK_SECONDS = 600; // 10 min @ 16kHz mono 16-bit WAV = ~19.2 MB (< 25 MB API limit)
+
+      const raAudio = document.createElement('audio');
+      raAudio.id = 'read-along-audio';
+      raAudio.playsInline = true;
+      raAudio.setAttribute('playsinline', '');
+      raAudio.setAttribute('webkit-playsinline', '');
+      raAudio.preload = 'metadata';
+      raAudio.muted = false;
+      raAudio.volume = 1.0;
+      raAudio.style.display = 'none';
+      document.body.appendChild(raAudio);
+
+      const raDom = {
+        btnToolbar: document.getElementById('btn-read-along'),
+        toolbarDot: document.getElementById('read-along-dot'),
+        bar: document.getElementById('read-along-bar'),
+        syncBadge: document.getElementById('ra-sync-badge'),
+        trackTitle: document.getElementById('ra-track-title'),
+        btnFollow: document.getElementById('btn-ra-follow'),
+        btnOpenManager: document.getElementById('btn-ra-open-manager'),
+        btnHideBar: document.getElementById('btn-ra-hide-bar'),
+        timeCurrent: document.getElementById('ra-time-current'),
+        scrubber: document.getElementById('ra-scrubber'),
+        timeTotal: document.getElementById('ra-time-total'),
+        btnSpeed: document.getElementById('btn-ra-speed'),
+        btnBack15: document.getElementById('btn-ra-back-15'),
+        btnPlayPause: document.getElementById('btn-ra-play-pause'),
+        iconPlay: document.getElementById('ra-icon-play'),
+        iconPause: document.getElementById('ra-icon-pause'),
+        btnFwd15: document.getElementById('btn-ra-fwd-15'),
+        btnQuickSync: document.getElementById('btn-ra-quick-sync'),
+        btnPlayFromAi: document.getElementById('btn-ra-play-from-ai'),
+        modalBackdrop: document.getElementById('read-along-modal-backdrop'),
+        btnCloseModal: document.getElementById('btn-close-read-along-modal'),
+        modalBookLabel: document.getElementById('ra-modal-book-label'),
+        btnScopeBook: document.getElementById('btn-ra-scope-book'),
+        btnScopeChapter: document.getElementById('btn-ra-scope-chapter'),
+        chapterPickerWrap: document.getElementById('ra-chapter-picker-wrap'),
+        chapterSelect: document.getElementById('ra-chapter-select'),
+        fileInput: document.getElementById('ra-audio-file-input'),
+        storageSummary: document.getElementById('ra-storage-summary'),
+        tracksList: document.getElementById('ra-tracks-list'),
+        syncPanel: document.getElementById('ra-sync-panel'),
+        activeSyncSummary: document.getElementById('ra-active-sync-summary'),
+        modalSyncPill: document.getElementById('ra-modal-sync-pill'),
+        whisperProvider: document.getElementById('ra-whisper-provider'),
+        btnWhisperAlign: document.getElementById('btn-ra-whisper-align'),
+        btnCancelAlign: document.getElementById('btn-ra-cancel-align'),
+        alignProgressWrap: document.getElementById('ra-align-progress-wrap'),
+        alignProgressBar: document.getElementById('ra-align-progress-bar'),
+        alignStatusText: document.getElementById('ra-align-status-text'),
+        btnSyncAnchor: document.getElementById('btn-ra-sync-anchor'),
+        btnResetSync: document.getElementById('btn-ra-reset-sync'),
+        btnOffsetDec: document.getElementById('btn-ra-offset-dec'),
+        offsetLabel: document.getElementById('ra-offset-label'),
+        btnOffsetInc: document.getElementById('btn-ra-offset-inc')
+      };
+
+      const raState = {
+        bookId: null,
+        tracks: [],
+        activeTrack: null,
+        objectUrl: null,
+        uploadScope: 'book',
+        barHiddenByUser: false,
+        autoFollow: true,
+        isAutoScrolling: false,
+        autoScrollTimer: null,
+        isScrubbing: false,
+        activeSentenceIdx: -1,
+        rafId: null,
+        lastSavedPosAt: 0,
+        alignAbortController: null,
+        isAligning: false
+      };
+
+      function getReadAlongPrefs() {
+        try {
+          const raw = localStorage.getItem(RA_PREFS_KEY);
+          return raw ? JSON.parse(raw) : {};
+        } catch (_) {
+          return {};
+        }
+      }
+
+      function saveReadAlongPrefs(patch) {
+        try {
+          const cur = getReadAlongPrefs();
+          localStorage.setItem(RA_PREFS_KEY, JSON.stringify({ ...cur, ...patch }));
+        } catch (_) {}
+      }
+
+      function formatAudioTime(sec) {
+        if (!Number.isFinite(sec) || sec < 0) return '00:00';
+        const total = Math.floor(sec);
+        const h = Math.floor(total / 3600);
+        const m = Math.floor((total % 3600) / 60);
+        const s = total % 60;
+        const mm = String(m).padStart(2, '0');
+        const ss = String(s).padStart(2, '0');
+        return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+      }
+
+      function formatByteSize(bytes) {
+        if (!bytes || bytes <= 0) return '0 MB';
+        const mb = bytes / (1024 * 1024);
+        return mb >= 100 ? `${Math.round(mb)} MB` : `${mb.toFixed(1)} MB`;
+      }
+
+      function hasReadAlongAudioLoaded() {
+        return Boolean(raState.activeTrack && raState.bookId === state.currentBookId);
+      }
+
+      function pauseReadAlongIfPlaying() {
+        try {
+          if (!raAudio.paused) {
+            raAudio.pause();
+          }
+        } catch (_) {}
+      }
+
+      function syncReadAlongBarVisibility() {
+        if (!raDom.bar) return;
+        const aiOpen = el.aiPanel && !el.aiPanel.classList.contains('hidden');
+        const hasTrack = hasReadAlongAudioLoaded();
+        const shouldShow = hasTrack && !raState.barHiddenByUser && !aiOpen;
+        raDom.bar.classList.toggle('hidden', !shouldShow);
+        if (raDom.toolbarDot) {
+          raDom.toolbarDot.classList.toggle('hidden', !hasTrack);
+          raDom.toolbarDot.classList.toggle('animate-pulse', hasTrack && !raAudio.paused);
+        }
+      }
+
+      // Build book-wide sentence index from tokenized words so highlighting & jumping are O(log N)
+      function buildBookSentenceIndex() {
+        window.epubSentences = [];
+        const normTokens = window.epubNormalizedTokens || [];
+        if (!normTokens.length) return [];
+
+        const BLOCK_SELECTOR = 'p, blockquote, li, h1, h2, h3, h4, h5, h6, dt, dd, figcaption, td, th';
+        let curBlock = null;
+        let curChap = 0;
+        let curStart = 0;
+        let curRawWords = [];
+        let curNormWords = [];
+        let curIsHeading = false;
+
+        const flushSentence = (endIdx) => {
+          if (endIdx < curStart || !curRawWords.length) return;
+          const sIdx = window.epubSentences.length;
+          const text = curRawWords.join(' ').replace(/\s+/g, ' ').trim();
+          const commaCount = (text.match(/[,;:\u2014\u2013]/g) || []).length;
+          const weight = Math.max(8, text.length + commaCount * 7 + (curIsHeading ? 18 : 12));
+          for (let i = curStart; i <= endIdx; i++) {
+            const tokEl = normTokens[i] && normTokens[i].el;
+            if (tokEl) tokEl.dataset.sentIdx = String(sIdx);
+          }
+          window.epubSentences.push({
+            sIdx,
+            chapterIdx: curChap,
+            startTok: curStart,
+            endTok: endIdx,
+            text,
+            normWords: curNormWords.slice(),
+            weight
+          });
+        };
+
+        for (let i = 0; i < normTokens.length; i++) {
+          const t = normTokens[i];
+          const secEl = t.el && t.el.closest ? t.el.closest('[data-chapter-section]') : null;
+          const chapIdx = secEl ? Number(secEl.dataset.chapterSection || 0) : 0;
+          const blk = t.el && t.el.closest ? t.el.closest(BLOCK_SELECTOR) : null;
+
+          if (i > curStart && (blk !== curBlock || chapIdx !== curChap)) {
+            flushSentence(i - 1);
+            curStart = i;
+            curRawWords = [];
+            curNormWords = [];
+          }
+
+          if (curRawWords.length === 0) {
+            curBlock = blk;
+            curChap = chapIdx;
+            curStart = i;
+            curIsHeading = Boolean(blk && /^H[1-6]$/.test(blk.tagName));
+          }
+
+          curRawWords.push(t.raw);
+          if (t.norm) curNormWords.push({ norm: t.norm, tokIdx: i });
+
+          const hitEnd = isSentenceEndToken(t.raw) || curRawWords.length >= 65;
+          if (hitEnd) {
+            flushSentence(i);
+            curStart = i + 1;
+            curRawWords = [];
+            curNormWords = [];
+          }
+        }
+        if (curRawWords.length > 0) {
+          flushSentence(normTokens.length - 1);
+        }
+        return window.epubSentences;
+      }
+
+      function getTargetSentencesForTrack(track) {
+        const all = window.epubSentences || [];
+        if (!track || track.scope === 'book' || track.chapterIdx === null || track.chapterIdx === undefined) {
+          return all;
+        }
+        const filtered = all.filter(s => s.chapterIdx === Number(track.chapterIdx));
+        return filtered.length ? filtered : all;
+      }
+
+      // Option 3: Instant character/punctuation-weighted timing estimator + multi-anchor piecewise calibration
+      function buildEstimatedSentenceTimings(durationSec, targetSentences, anchors = []) {
+        if (!targetSentences || !targetSentences.length) return [];
+        const dur = Math.max(1, Number(durationSec) || 60);
+        const n = targetSentences.length;
+
+        // Build cumulative weights across targetSentences
+        const cumW = new Array(n + 1).fill(0);
+        for (let i = 0; i < n; i++) {
+          cumW[i + 1] = cumW[i] + (targetSentences[i].weight || 20);
+        }
+
+        const idxMap = new Map();
+        targetSentences.forEach((s, pos) => idxMap.set(s.sIdx, pos));
+
+        // Normalize and sort valid monotonic anchor points (pos -> timeSec)
+        const cleanAnchors = (anchors || [])
+          .map(a => ({ pos: idxMap.get(a.sIdx), timeSec: Math.max(0, Math.min(dur, Number(a.timeSec) || 0)) }))
+          .filter(a => a.pos !== undefined)
+          .sort((a, b) => a.pos - b.pos);
+
+        const pts = [{ pos: 0, time: 0 }];
+        for (const a of cleanAnchors) {
+          const prev = pts[pts.length - 1];
+          if (a.pos === prev.pos) {
+            prev.time = a.timeSec;
+          } else if (a.pos > prev.pos && a.timeSec >= prev.time) {
+            pts.push({ pos: a.pos, time: a.timeSec });
+          }
+        }
+        const lastPt = pts[pts.length - 1];
+        if (lastPt.pos < n) {
+          pts.push({ pos: n, time: Math.max(lastPt.time + 0.5, dur) });
+        }
+
+        const timings = new Array(n);
+        for (let seg = 0; seg < pts.length - 1; seg++) {
+          const pA = pts[seg];
+          const pB = pts[seg + 1];
+          const segWeight = Math.max(1, cumW[pB.pos] - cumW[pA.pos]);
+          const segDur = Math.max(0.1, pB.time - pA.time);
+          for (let pos = pA.pos; pos < pB.pos; pos++) {
+            const fracStart = (cumW[pos] - cumW[pA.pos]) / segWeight;
+            const fracEnd = (cumW[pos + 1] - cumW[pA.pos]) / segWeight;
+            const s = targetSentences[pos];
+            const st = pA.time + fracStart * segDur;
+            const en = Math.max(st + 0.12, pA.time + fracEnd * segDur);
+            timings[pos] = {
+              sIdx: s.sIdx,
+              chapterIdx: s.chapterIdx,
+              startTok: s.startTok,
+              endTok: s.endTok,
+              startTime: Number(st.toFixed(3)),
+              endTime: Number(en.toFixed(3))
+            };
+          }
+        }
+        return timings.filter(Boolean);
+      }
+
+      // Pure-JS 16 kHz mono 16-bit PCM WAV encoder for slicing large audiobooks (> 23 MB) cleanly for Whisper
+      function encodeMono16kWavBlob(audioBuffer, startSec, endSec) {
+        const srcRate = audioBuffer.sampleRate;
+        const targetRate = 16000;
+        const startSample = Math.max(0, Math.floor(startSec * srcRate));
+        const endSample = Math.min(audioBuffer.length, Math.floor(endSec * srcRate));
+        const srcLen = Math.max(1, endSample - startSample);
+        const outLen = Math.max(1, Math.floor(srcLen * (targetRate / srcRate)));
+        const numCh = audioBuffer.numberOfChannels;
+        const ch0 = audioBuffer.getChannelData(0);
+        const ch1 = numCh > 1 ? audioBuffer.getChannelData(1) : null;
+
+        const buffer = new ArrayBuffer(44 + outLen * 2);
+        const view = new DataView(buffer);
+        const writeStr = (off, str) => {
+          for (let i = 0; i < str.length; i++) view.setUint8(off + i, str.charCodeAt(i));
+        };
+        writeStr(0, 'RIFF');
+        view.setUint32(4, 36 + outLen * 2, true);
+        writeStr(8, 'WAVE');
+        writeStr(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true); // PCM
+        view.setUint16(22, 1, true); // Mono
+        view.setUint32(24, targetRate, true);
+        view.setUint32(28, targetRate * 2, true);
+        view.setUint16(32, 2, true);
+        view.setUint16(34, 16, true);
+        writeStr(36, 'data');
+        view.setUint32(40, outLen * 2, true);
+
+        const ratio = srcRate / targetRate;
+        let offset = 44;
+        for (let i = 0; i < outLen; i++) {
+          const srcPos = startSample + i * ratio;
+          const idx0 = Math.min(audioBuffer.length - 1, Math.floor(srcPos));
+          const idx1 = Math.min(audioBuffer.length - 1, idx0 + 1);
+          const frac = srcPos - idx0;
+          const s0 = ch1 ? (ch0[idx0] + ch1[idx0]) * 0.5 : ch0[idx0];
+          const s1 = ch1 ? (ch0[idx1] + ch1[idx1]) * 0.5 : ch0[idx1];
+          const sample = Math.max(-1, Math.min(1, s0 + (s1 - s0) * frac));
+          view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+          offset += 2;
+        }
+        return new Blob([buffer], { type: 'audio/wav' });
+      }
+
+      function normalizeWhisperUploadFilename(name, mimeType) {
+        const base = String(name || 'audio.mp3').replace(/\.[^.]+$/, '');
+        const lower = String(name || '').toLowerCase();
+        // Whisper APIs reject .m4b extension even though the container is standard MP4/AAC (.m4a)
+        if (lower.endsWith('.m4b') || lower.endsWith('.m4a') || String(mimeType || '').includes('mp4')) return `${base}.m4a`;
+        if (lower.endsWith('.wav') || String(mimeType || '').includes('wav')) return `${base}.wav`;
+        if (lower.endsWith('.ogg')) return `${base}.ogg`;
+        if (lower.endsWith('.webm')) return `${base}.webm`;
+        return `${base}.mp3`;
+      }
+
+      async function transcribeChunkWithWhisper(audioBlob, filename, provider, apiKey, signal) {
+        const isGroq = provider === 'groq';
+        const endpoint = isGroq
+          ? 'https://api.groq.com/openai/v1/audio/transcriptions'
+          : 'https://api.openai.com/v1/audio/transcriptions';
+        const model = isGroq ? 'whisper-large-v3-turbo' : 'whisper-1';
+
+        const fd = new FormData();
+        fd.append('file', audioBlob, normalizeWhisperUploadFilename(filename, audioBlob.type));
+        fd.append('model', model);
+        fd.append('response_format', 'verbose_json');
+        fd.append('timestamp_granularities[]', 'word');
+        fd.append('timestamp_granularities[]', 'segment');
+        fd.append('language', 'en');
+
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${apiKey}` },
+          body: fd,
+          signal
+        });
+        if (!res.ok) {
+          let detail = '';
+          try { detail = (await res.text()).slice(0, 220); } catch (_) {}
+          throw new Error(`${isGroq ? 'Groq' : 'OpenAI'} Whisper HTTP ${res.status}${detail ? ': ' + detail : ''}`);
+        }
+        const data = await res.json();
+        const words = [];
+        if (Array.isArray(data.words) && data.words.length > 0) {
+          for (const w of data.words) {
+            const norm = normalizeWordToken(w.word || '');
+            if (!norm) continue;
+            const st = Number(w.start);
+            const en = Number(w.end);
+            if (Number.isFinite(st)) {
+              words.push({ norm, start: st, end: Number.isFinite(en) ? Math.max(st + 0.04, en) : st + 0.25 });
+            }
+          }
+        } else if (Array.isArray(data.segments) && data.segments.length > 0) {
+          // Fallback: interpolate word times linearly inside each Whisper segment
+          for (const seg of data.segments) {
+            const st = Number(seg.start);
+            const en = Number(seg.end);
+            const segTokens = String(seg.text || '').trim().split(/\s+/).map(normalizeWordToken).filter(Boolean);
+            if (!segTokens.length || !Number.isFinite(st)) continue;
+            const segDur = Math.max(0.2, (Number.isFinite(en) ? en : st + segTokens.length * 0.35) - st);
+            const step = segDur / segTokens.length;
+            segTokens.forEach((norm, idx) => {
+              words.push({ norm, start: st + idx * step, end: st + (idx + 1) * step });
+            });
+          }
+        }
+        return words;
+      }
+
+      // Option 1: Monotonic Forced-Alignment Matcher (3-gram / 2-gram shingle anchors + O(N log N) LIS)
+      function alignWhisperWordsToSentences(whisperWords, targetSentences, durationSec) {
+        if (!targetSentences.length) return { timings: [], coveragePct: 0 };
+        if (!whisperWords || whisperWords.length < 3) {
+          return { timings: buildEstimatedSentenceTimings(durationSec, targetSentences), coveragePct: 0 };
+        }
+
+        // Flatten target sentences' normalized words
+        const bookWords = [];
+        const sentBounds = [];
+        targetSentences.forEach((s, localPos) => {
+          const startW = bookWords.length;
+          (s.normWords || []).forEach(w => {
+            if (w.norm) bookWords.push({ norm: w.norm, localPos });
+          });
+          sentBounds.push({ startW, endW: Math.max(startW, bookWords.length - 1), count: bookWords.length - startW });
+        });
+
+        if (bookWords.length < 3) {
+          return { timings: buildEstimatedSentenceTimings(durationSec, targetSentences), coveragePct: 0 };
+        }
+
+        const collectMatches = (ngramSize) => {
+          const index = new Map();
+          for (let b = 0; b <= bookWords.length - ngramSize; b++) {
+            let key = bookWords[b].norm;
+            for (let k = 1; k < ngramSize; k++) key += ' ' + bookWords[b + k].norm;
+            let list = index.get(key);
+            if (!list) {
+              list = [];
+              index.set(key, list);
+            }
+            if (list.length < 8) list.push(b); // skip overly repetitive stop-word n-grams
+          }
+
+          // Collect candidate pairs ordered by whisperIdx ascending, bookIdx descending (strict LIS rule)
+          const pairs = [];
+          for (let w = 0; w <= whisperWords.length - ngramSize; w++) {
+            let key = whisperWords[w].norm;
+            for (let k = 1; k < ngramSize; k++) key += ' ' + whisperWords[w + k].norm;
+            const hits = index.get(key);
+            if (!hits) continue;
+            for (let h = hits.length - 1; h >= 0; h--) {
+              pairs.push({ w, b: hits[h] });
+            }
+          }
+          if (!pairs.length) return [];
+
+          // O(M log M) Longest Increasing Subsequence on book index b
+          const tails = [];
+          const tailIdx = [];
+          const prev = new Int32Array(pairs.length).fill(-1);
+          for (let i = 0; i < pairs.length; i++) {
+            const val = pairs[i].b;
+            let lo = 0, hi = tails.length;
+            while (lo < hi) {
+              const mid = (lo + hi) >> 1;
+              if (tails[mid] < val) lo = mid + 1;
+              else hi = mid;
+            }
+            if (lo > 0) prev[i] = tailIdx[lo - 1];
+            tails[lo] = val;
+            tailIdx[lo] = i;
+          }
+          const lis = [];
+          let cur = tailIdx[tails.length - 1];
+          while (cur !== -1) {
+            lis.push(pairs[cur]);
+            cur = prev[cur];
+          }
+          lis.reverse();
+          return lis;
+        };
+
+        let anchors = collectMatches(3);
+        if (anchors.length < Math.max(3, Math.floor(targetSentences.length * 0.15))) {
+          const biAnchors = collectMatches(2);
+          if (biAnchors.length > anchors.length) anchors = biAnchors;
+        }
+
+        if (anchors.length < 2) {
+          return { timings: buildEstimatedSentenceTimings(durationSec, targetSentences), coveragePct: 0 };
+        }
+
+        // Map matched book word indices -> Whisper timestamps
+        const bookWordTime = new Float64Array(bookWords.length).fill(-1);
+        const bookWordEnd = new Float64Array(bookWords.length).fill(-1);
+        for (const a of anchors) {
+          if (bookWordTime[a.b] < 0) {
+            bookWordTime[a.b] = whisperWords[a.w].start;
+            bookWordEnd[a.b] = whisperWords[a.w].end;
+          }
+          if (a.b + 1 < bookWords.length && a.w + 1 < whisperWords.length && bookWordTime[a.b + 1] < 0) {
+            bookWordTime[a.b + 1] = whisperWords[a.w + 1].start;
+            bookWordEnd[a.b + 1] = whisperWords[a.w + 1].end;
+          }
+        }
+
+        // Interpolate unmatched book words linearly between surrounding matched anchors
+        const matchedIdx = [];
+        for (let b = 0; b < bookWords.length; b++) {
+          if (bookWordTime[b] >= 0) matchedIdx.push(b);
+        }
+
+        const dur = Math.max(durationSec || 0, whisperWords[whisperWords.length - 1].end || 1);
+        const avgWordSec = Math.max(0.18, Math.min(0.65, dur / Math.max(1, bookWords.length)));
+
+        // Fill before first anchor
+        const firstB = matchedIdx[0];
+        const firstT = bookWordTime[firstB];
+        for (let b = 0; b < firstB; b++) {
+          const frac = firstB > 0 ? b / firstB : 0;
+          const estStart = Math.max(0, firstT - (firstB - b) * avgWordSec);
+          bookWordTime[b] = firstT > 0 ? Math.max(estStart, frac * firstT) : 0;
+          bookWordEnd[b] = bookWordTime[b] + avgWordSec * 0.85;
+        }
+        // Fill between consecutive anchors
+        for (let m = 0; m < matchedIdx.length - 1; m++) {
+          const bA = matchedIdx[m];
+          const bB = matchedIdx[m + 1];
+          const tA = bookWordTime[bA];
+          const tB = Math.max(tA, bookWordTime[bB]);
+          const gap = bB - bA;
+          if (gap > 1) {
+            const step = (tB - tA) / gap;
+            for (let b = bA + 1; b < bB; b++) {
+              bookWordTime[b] = tA + (b - bA) * step;
+              bookWordEnd[b] = bookWordTime[b] + Math.max(0.08, step * 0.9);
+            }
+          }
+        }
+        // Fill after last anchor
+        const lastB = matchedIdx[matchedIdx.length - 1];
+        const lastT = bookWordEnd[lastB] >= 0 ? bookWordEnd[lastB] : bookWordTime[lastB];
+        const remCount = Math.max(1, bookWords.length - 1 - lastB);
+        const remStep = Math.max(0.12, Math.min(0.7, (dur - lastT) / remCount));
+        for (let b = lastB + 1; b < bookWords.length; b++) {
+          bookWordTime[b] = Math.min(dur, lastT + (b - lastB) * remStep);
+          bookWordEnd[b] = Math.min(dur, bookWordTime[b] + remStep * 0.9);
+        }
+
+        // Convert word timestamps to clean, strictly monotonic sentence timings
+        const matchedSentSet = new Set(anchors.map(a => bookWords[a.b].localPos));
+        const timings = [];
+        let prevEnd = 0;
+        for (let i = 0; i < targetSentences.length; i++) {
+          const s = targetSentences[i];
+          const bnd = sentBounds[i];
+          let st = bnd.count > 0 ? bookWordTime[bnd.startW] : prevEnd;
+          let en = bnd.count > 0 ? bookWordEnd[bnd.endW] : st + 0.5;
+          if (!Number.isFinite(st) || st < prevEnd) st = prevEnd;
+          if (!Number.isFinite(en) || en <= st) en = st + 0.25;
+          prevEnd = st;
+          timings.push({
+            sIdx: s.sIdx,
+            chapterIdx: s.chapterIdx,
+            startTok: s.startTok,
+            endTok: s.endTok,
+            startTime: Number(st.toFixed(3)),
+            endTime: Number(en.toFixed(3))
+          });
+        }
+        // Clamp sentence[i].endTime <= sentence[i+1].startTime for crisp transitions
+        for (let i = 0; i < timings.length - 1; i++) {
+          if (timings[i].endTime > timings[i + 1].startTime) {
+            timings[i].endTime = Number(Math.max(timings[i].startTime + 0.08, timings[i + 1].startTime).toFixed(3));
+          }
+        }
+        const coveragePct = Math.min(100, Math.round((matchedSentSet.size / targetSentences.length) * 100));
+        return { timings, coveragePct };
+      }
+
+      // Binary search for active sentence at adjusted time
+      function findTimingAtTime(timings, t) {
+        if (!timings || !timings.length) return null;
+        if (t < timings[0].startTime) return timings[0];
+        let lo = 0, hi = timings.length - 1, best = 0;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          if (timings[mid].startTime <= t) {
+            best = mid;
+            lo = mid + 1;
+          } else {
+            hi = mid - 1;
+          }
+        }
+        return timings[best];
+      }
+
+      function clearReadAlongHighlight() {
+        if (!el.chapterBody) return;
+        el.chapterBody.querySelectorAll('.read-along-active').forEach(n => n.classList.remove('read-along-active'));
+        raState.activeSentenceIdx = -1;
+      }
+
+      function applyReadAlongHighlight(timing, allowScroll = true) {
+        if (!timing || timing.sIdx === raState.activeSentenceIdx) return;
+        clearReadAlongHighlight();
+        raState.activeSentenceIdx = timing.sIdx;
+
+        let firstTokEl = null;
+        let lastTokEl = null;
+        for (let i = timing.startTok; i <= timing.endTok; i++) {
+          const tok = window.epubAllTokens[i];
+          if (tok) {
+            tok.classList.add('read-along-active');
+            if (!firstTokEl) firstTokEl = tok;
+            lastTokEl = tok;
+          }
+        }
+
+        // Keep active chapter header & TOC in sync as audio crosses chapters
+        if (timing.chapterIdx !== undefined && timing.chapterIdx !== state.currentChapterIdx) {
+          updateActiveChapterHeader(timing.chapterIdx);
+          recordChapterVocabEncounters(timing.chapterIdx);
+          renderDrawer();
+        }
+
+        // Auto-scroll smoothly into comfortable reading zone
+        if (allowScroll && raState.autoFollow && firstTokEl) {
+          const rect = firstTokEl.getBoundingClientRect();
+          const lastRect = lastTokEl ? lastTokEl.getBoundingClientRect() : rect;
+          const barHeight = (raDom.bar && !raDom.bar.classList.contains('hidden')) ? raDom.bar.offsetHeight : 90;
+          const topMargin = 86;
+          const bottomLimit = window.innerHeight - barHeight - 44;
+          if (rect.top < topMargin || lastRect.bottom > bottomLimit) {
+            raState.isAutoScrolling = true;
+            clearTimeout(raState.autoScrollTimer);
+            const targetTop = Math.max(0, window.scrollY + rect.top - Math.round(window.innerHeight * 0.30));
+            window.scrollTo({ top: targetTop, behavior: 'smooth' });
+            raState.autoScrollTimer = setTimeout(() => { raState.isAutoScrolling = false; }, 650);
+          }
+        }
+      }
+
+      function updateReadAlongPlayUi() {
+        const playing = !raAudio.paused && !raAudio.ended;
+        if (raDom.iconPlay) raDom.iconPlay.classList.toggle('hidden', playing);
+        if (raDom.iconPause) raDom.iconPause.classList.toggle('hidden', !playing);
+        if (raDom.btnPlayPause) raDom.btnPlayPause.setAttribute('aria-label', playing ? 'Pause Read Along Audio' : 'Play Read Along Audio');
+        if (raDom.toolbarDot) raDom.toolbarDot.classList.toggle('animate-pulse', playing);
+        if (raDom.btnFollow) {
+          raDom.btnFollow.className = raState.autoFollow
+            ? 'px-2 py-0.5 rounded-lg border border-sky-600/35 bg-sky-600/15 tone-sky text-[11px] font-semibold transition-colors'
+            : 'px-2 py-0.5 rounded-lg border border-themed muted-text text-[11px] font-medium hover-surface transition-colors';
+          raDom.btnFollow.textContent = raState.autoFollow ? 'Follow' : 'Follow Off';
+        }
+      }
+
+      function updateReadAlongSyncUi() {
+        const track = raState.activeTrack;
+        if (!track) {
+          if (raDom.syncPanel) raDom.syncPanel.classList.add('hidden');
+          return;
+        }
+        const isWhisper = track.syncMethod === 'whisper';
+        const offset = Number(track.syncOffsetSec) || 0;
+        if (raDom.syncBadge) {
+          raDom.syncBadge.textContent = isWhisper ? 'Whisper Sync' : 'Est. Sync';
+          raDom.syncBadge.className = isWhisper
+            ? 'inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-600/15 tone-emerald border border-emerald-600/25 shrink-0'
+            : 'inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-600/15 tone-amber border border-amber-600/25 shrink-0';
+        }
+        if (raDom.trackTitle) {
+          const scopeTag = track.scope === 'chapter' ? `Ch. ${Number(track.chapterIdx) + 1}` : 'Book';
+          raDom.trackTitle.textContent = `${scopeTag}: ${track.fileName || 'Audiobook'}`;
+        }
+        if (raDom.syncPanel) raDom.syncPanel.classList.remove('hidden');
+        if (raDom.modalSyncPill) {
+          raDom.modalSyncPill.textContent = isWhisper ? `Whisper (${track.syncCoveragePct || 95}%)` : 'Estimated';
+          raDom.modalSyncPill.className = isWhisper
+            ? 'px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-600/20 tone-emerald'
+            : 'px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-600/20 tone-amber';
+        }
+        if (raDom.activeSyncSummary) {
+          const count = (track.sentenceTimings || []).length;
+          raDom.activeSyncSummary.textContent = isWhisper
+            ? `Exact Whisper alignment cached (${count} sentences${track.syncProvider ? ' via ' + track.syncProvider : ''})`
+            : `Instant estimated sync (${count} sentences) — tap Sync Here anytime or run Whisper`;
+        }
+        if (raDom.offsetLabel) {
+          raDom.offsetLabel.textContent = `${offset > 0 ? '+' : ''}${offset.toFixed(1)}s`;
+        }
+        if (raDom.btnSpeed) {
+          const rate = Number(raAudio.playbackRate || track.playbackRate || 1.0);
+          raDom.btnSpeed.textContent = `${rate.toFixed(rate % 1 === 0 ? 1 : 2).replace(/0$/, '')}×`;
+        }
+      }
+
+      function updateReadAlongTimeUi() {
+        const cur = Number.isFinite(raAudio.currentTime) ? raAudio.currentTime : 0;
+        const dur = Number.isFinite(raAudio.duration) && raAudio.duration > 0
+          ? raAudio.duration
+          : (raState.activeTrack && raState.activeTrack.durationSec ? raState.activeTrack.durationSec : 0);
+        if (raDom.timeCurrent) raDom.timeCurrent.textContent = formatAudioTime(cur);
+        if (raDom.timeTotal) raDom.timeTotal.textContent = formatAudioTime(dur);
+        if (raDom.scrubber && !raState.isScrubbing && dur > 0) {
+          raDom.scrubber.max = String(dur);
+          raDom.scrubber.value = String(Math.min(dur, cur));
+        }
+      }
+
+      function persistActiveReadAlongPosition(force = false) {
+        const track = raState.activeTrack;
+        if (!track || raState.isRestoringTrack) return;
+        const now = Date.now();
+        if (!force && now - raState.lastSavedPosAt < 2800) return;
+        raState.lastSavedPosAt = now;
+        const cur = Number.isFinite(raAudio.currentTime) ? Number(raAudio.currentTime.toFixed(2)) : 0;
+        const rate = Number(raAudio.playbackRate || 1.0);
+        track.lastTimeSec = cur;
+        track.playbackRate = rate;
+        updateAudioTrackMetaInDb(track.id, { lastTimeSec: cur, playbackRate: rate });
+        const prefs = getReadAlongPrefs();
+        const perBook = prefs.lastTrackByBook || {};
+        perBook[track.bookId] = track.id;
+        saveReadAlongPrefs({ lastTrackByBook: perBook, lastRate: rate });
+      }
+
+      function updateMediaSessionMetadata() {
+        if (!('mediaSession' in navigator) || !raState.activeTrack) return;
+        try {
+          const book = getCurrentBook();
+          const track = raState.activeTrack;
+          const chapLabel = track.scope === 'chapter' && book && book.chapters[track.chapterIdx]
+            ? book.chapters[track.chapterIdx].title
+            : (track.fileName || 'Audiobook');
+          if (typeof MediaMetadata !== 'undefined') {
+            navigator.mediaSession.metadata = new MediaMetadata({
+              title: book ? book.title : chapLabel,
+              artist: book ? book.author : 'Steven N. Ebook',
+              album: chapLabel
+            });
+          }
+          navigator.mediaSession.setActionHandler('play', () => playReadAlong());
+          navigator.mediaSession.setActionHandler('pause', () => raAudio.pause());
+          navigator.mediaSession.setActionHandler('seekbackward', () => seekReadAlongBy(-15));
+          navigator.mediaSession.setActionHandler('seekforward', () => seekReadAlongBy(15));
+          navigator.mediaSession.setActionHandler('seekto', (details) => {
+            if (details && Number.isFinite(details.seekTime)) {
+              raAudio.currentTime = Math.max(0, Math.min(raAudio.duration || details.seekTime, details.seekTime));
+              syncHighlightToCurrentAudioTime(true);
+              persistActiveReadAlongPosition(true);
+            }
+          });
+        } catch (_) {}
+      }
+
+      function syncHighlightToCurrentAudioTime(allowScroll = true) {
+        const track = raState.activeTrack;
+        if (!track || !track.sentenceTimings || !track.sentenceTimings.length) return;
+        const offset = Number(track.syncOffsetSec) || 0;
+        const adjusted = Math.max(0, (raAudio.currentTime || 0) + offset);
+        const timing = findTimingAtTime(track.sentenceTimings, adjusted);
+        if (timing) applyReadAlongHighlight(timing, allowScroll);
+      }
+
+      function startReadAlongRafLoop() {
+        if (raState.rafId) cancelAnimationFrame(raState.rafId);
+        const tick = () => {
+          if (!raAudio.paused && !raAudio.ended && raState.activeTrack) {
+            updateReadAlongTimeUi();
+            syncHighlightToCurrentAudioTime(true);
+            persistActiveReadAlongPosition(false);
+            raState.rafId = requestAnimationFrame(tick);
+          } else {
+            raState.rafId = null;
+          }
+        };
+        raState.rafId = requestAnimationFrame(tick);
+      }
+
+      async function playReadAlong() {
+        if (!raState.activeTrack) return;
+        ensureIosPlaybackAudioSession();
+        if (typeof stopAllActiveSpeech === 'function') stopAllActiveSpeech();
+        try {
+          raAudio.muted = false;
+          raAudio.volume = 1.0;
+          await raAudio.play();
+          updateReadAlongPlayUi();
+          updateMediaSessionMetadata();
+          startReadAlongRafLoop();
+        } catch (err) {
+          showToast('Tap Play again to start audio');
+          console.warn('Read Along play error:', err);
+        }
+      }
+
+      function toggleReadAlongPlay() {
+        if (!raState.activeTrack) {
+          openReadAlongModal();
+          return;
+        }
+        if (raAudio.paused || raAudio.ended) {
+          playReadAlong();
+        } else {
+          raAudio.pause();
+        }
+      }
+
+      function seekReadAlongBy(deltaSec) {
+        if (!raState.activeTrack) return;
+        const dur = Number.isFinite(raAudio.duration) && raAudio.duration > 0
+          ? raAudio.duration
+          : (raState.activeTrack.durationSec || 0);
+        const target = Math.max(0, Math.min(dur > 0 ? dur : Infinity, (raAudio.currentTime || 0) + deltaSec));
+        raAudio.currentTime = target;
+        updateReadAlongTimeUi();
+        syncHighlightToCurrentAudioTime(true);
+        persistActiveReadAlongPosition(true);
+      }
+
+      async function loadAudioTrackRecord(record, autoPlay = false) {
+        if (!record) return;
+        raState.isRestoringTrack = true;
+        pauseReadAlongIfPlaying();
+        clearReadAlongHighlight();
+        if (raState.objectUrl) {
+          try { URL.revokeObjectURL(raState.objectUrl); } catch (_) {}
+          raState.objectUrl = null;
+        }
+
+        // Normalize MIME type for .m4b files so Safari/Chrome play them cleanly
+        let blob = record.audioBlob;
+        if (blob && (!blob.type || blob.type === 'application/octet-stream' || String(record.fileName || '').toLowerCase().endsWith('.m4b'))) {
+          const lower = String(record.fileName || '').toLowerCase();
+          const fixedType = lower.endsWith('.m4b') || lower.endsWith('.m4a')
+            ? 'audio/mp4'
+            : lower.endsWith('.wav') ? 'audio/wav' : 'audio/mpeg';
+          blob = new Blob([blob], { type: fixedType });
+        }
+
+        const savedResumeSec = Number(record.lastTimeSec) || 0;
+        raState.activeTrack = record;
+        raState.barHiddenByUser = false;
+        raState.objectUrl = URL.createObjectURL(blob);
+        raAudio.src = raState.objectUrl;
+        raAudio.load();
+
+        const prefs = getReadAlongPrefs();
+        const rate = Number(record.playbackRate || prefs.lastRate || 1.0);
+        const validRate = RA_SPEEDS.includes(rate) ? rate : 1.0;
+        raAudio.playbackRate = validRate;
+
+        const targetSentences = getTargetSentencesForTrack(record);
+        const onMetadataReady = async () => {
+          const dur = Number.isFinite(raAudio.duration) && raAudio.duration > 0 ? raAudio.duration : (record.durationSec || 0);
+          let needSave = false;
+          if (dur > 0 && Math.abs((record.durationSec || 0) - dur) > 0.5) {
+            record.durationSec = dur;
+            needSave = true;
+          }
+          // Generate instant estimated timings if none exist yet or if sentence count changed
+          if (!Array.isArray(record.sentenceTimings) || record.sentenceTimings.length === 0) {
+            record.sentenceTimings = buildEstimatedSentenceTimings(dur || 60, targetSentences, record.anchors || []);
+            record.syncMethod = record.syncMethod || 'estimated';
+            needSave = true;
+          }
+          if (needSave) {
+            await updateAudioTrackMetaInDb(record.id, {
+              durationSec: record.durationSec,
+              sentenceTimings: record.sentenceTimings,
+              syncMethod: record.syncMethod
+            });
+          }
+          if (savedResumeSec > 0.5 && dur > 2 && savedResumeSec < dur - 1) {
+            try { raAudio.currentTime = savedResumeSec; } catch (_) {}
+          }
+          raState.isRestoringTrack = false;
+          updateReadAlongTimeUi();
+          updateReadAlongSyncUi();
+          syncHighlightToCurrentAudioTime(false);
+          renderReadAlongTracksList();
+          if (autoPlay) {
+            playReadAlong();
+          }
+        };
+
+        if (raAudio.readyState >= 1) {
+          onMetadataReady();
+        } else {
+          raAudio.addEventListener('loadedmetadata', onMetadataReady, { once: true });
+        }
+
+        updateReadAlongPlayUi();
+        updateReadAlongSyncUi();
+        updateReadAlongTimeUi();
+        syncReadAlongBarVisibility();
+        renderReadAlongTracksList();
+      }
+
+      async function loadReadAlongForCurrentBook() {
+        const book = getCurrentBook();
+        const bookId = book ? book.id : null;
+        if (raState.bookId !== bookId) {
+          pauseReadAlongIfPlaying();
+          clearReadAlongHighlight();
+          if (raState.objectUrl) {
+            try { URL.revokeObjectURL(raState.objectUrl); } catch (_) {}
+            raState.objectUrl = null;
+          }
+          raState.activeTrack = null;
+          raState.bookId = bookId;
+        }
+        if (!bookId) {
+          raState.tracks = [];
+          syncReadAlongBarVisibility();
+          return;
+        }
+        const tracks = await getAudioTracksForBook(bookId);
+        tracks.sort((a, b) => {
+          if (a.scope === 'book' && b.scope !== 'book') return -1;
+          if (b.scope === 'book' && a.scope !== 'book') return 1;
+          return (Number(a.chapterIdx) || 0) - (Number(b.chapterIdx) || 0);
+        });
+        raState.tracks = tracks;
+
+        if (!tracks.length) {
+          raState.activeTrack = null;
+          syncReadAlongBarVisibility();
+          renderReadAlongTracksList();
+          return;
+        }
+
+        const prefs = getReadAlongPrefs();
+        const preferredId = prefs.lastTrackByBook && prefs.lastTrackByBook[bookId];
+        const chosen = tracks.find(t => t.id === preferredId) || tracks[0];
+        if (!raState.activeTrack || raState.activeTrack.id !== chosen.id) {
+          await loadAudioTrackRecord(chosen, false);
+        } else {
+          syncReadAlongBarVisibility();
+          renderReadAlongTracksList();
+        }
+      }
+
+      // Jump audio to a double-tapped sentence (switches per-chapter audio automatically if attached)
+      async function jumpReadAlongToSentence(sentIdx, autoPlay = true) {
+        const sentence = (window.epubSentences || [])[sentIdx];
+        if (!sentence) return;
+
+        // If current track is chapter-scoped for a DIFFERENT chapter, check if target chapter has its own attached audio
+        let track = raState.activeTrack;
+        if (track && track.scope === 'chapter' && Number(track.chapterIdx) !== sentence.chapterIdx) {
+          const matchingChapTrack = raState.tracks.find(t => t.scope === 'chapter' && Number(t.chapterIdx) === sentence.chapterIdx)
+            || raState.tracks.find(t => t.scope === 'book');
+          if (matchingChapTrack) {
+            await loadAudioTrackRecord(matchingChapTrack, false);
+            track = raState.activeTrack;
+          } else {
+            showToast(`No audio attached for Chapter ${sentence.chapterIdx + 1}`);
+            return;
+          }
+        }
+        if (!track || !track.sentenceTimings || !track.sentenceTimings.length) return;
+
+        let timing = track.sentenceTimings.find(t => t.sIdx === sentIdx);
+        if (!timing) {
+          // Closest sentence in track timings
+          timing = track.sentenceTimings.reduce((best, cur) =>
+            Math.abs(cur.sIdx - sentIdx) < Math.abs(best.sIdx - sentIdx) ? cur : best,
+            track.sentenceTimings[0]
+          );
+        }
+        if (!timing) return;
+
+        const offset = Number(track.syncOffsetSec) || 0;
+        const targetSec = Math.max(0, timing.startTime - offset);
+        raAudio.currentTime = targetSec;
+        raState.barHiddenByUser = false;
+        raState.autoFollow = true;
+        applyReadAlongHighlight(timing, false);
+        updateReadAlongTimeUi();
+        updateReadAlongPlayUi();
+        syncReadAlongBarVisibility();
+        persistActiveReadAlongPosition(true);
+        if (autoPlay) {
+          await playReadAlong();
+        }
+        showToast(`Jumped to ${formatAudioTime(targetSec)}`);
+      }
+
+      // Find the sentence currently visible near the upper-middle reading line (for Option 3 Sync Here)
+      function findVisibleReadingSentenceIdx() {
+        const sentences = window.epubSentences || [];
+        if (!sentences.length) return -1;
+        const targetY = Math.round(window.innerHeight * 0.30);
+        let bestIdx = 0;
+        let bestDist = Infinity;
+        for (let i = 0; i < sentences.length; i++) {
+          const tok = window.epubAllTokens[sentences[i].startTok];
+          if (!tok) continue;
+          const r = tok.getBoundingClientRect();
+          if (r.height === 0) continue;
+          const dist = Math.abs(r.top - targetY);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestIdx = i;
+          }
+        }
+        return bestIdx;
+      }
+
+      async function calibrateAnchorToCurrentScreenSentence() {
+        const track = raState.activeTrack;
+        if (!track) return;
+        const targetSentences = getTargetSentencesForTrack(track);
+        if (!targetSentences.length) return;
+
+        const visIdx = findVisibleReadingSentenceIdx();
+        const matched = targetSentences.find(s => s.sIdx === visIdx) || targetSentences[0];
+        if (!matched) return;
+
+        const nowSec = Number.isFinite(raAudio.currentTime) ? raAudio.currentTime : 0;
+        const dur = Number.isFinite(raAudio.duration) && raAudio.duration > 0 ? raAudio.duration : (track.durationSec || 60);
+        const existingAnchors = Array.isArray(track.anchors) ? track.anchors.filter(a => Math.abs(a.sIdx - matched.sIdx) > 3) : [];
+        existingAnchors.push({ sIdx: matched.sIdx, timeSec: nowSec });
+        track.anchors = existingAnchors;
+        track.syncMethod = 'estimated';
+        track.syncOffsetSec = 0;
+        track.sentenceTimings = buildEstimatedSentenceTimings(dur, targetSentences, existingAnchors);
+        await updateAudioTrackMetaInDb(track.id, {
+          anchors: track.anchors,
+          syncMethod: track.syncMethod,
+          syncOffsetSec: 0,
+          sentenceTimings: track.sentenceTimings
+        });
+        syncHighlightToCurrentAudioTime(false);
+        updateReadAlongSyncUi();
+        showToast(`Synced ${formatAudioTime(nowSec)} to current sentence`);
+      }
+
+      // Option 1: 1-Click Whisper Auto-Align using existing Groq / OpenAI API keys
+      async function runWhisperAlignmentForActiveTrack() {
+        const track = raState.activeTrack;
+        if (!track || !track.audioBlob) {
+          showToast('Upload an audio file first');
+          return;
+        }
+        if (raState.isAligning) return;
+
+        const pref = (raDom.whisperProvider && raDom.whisperProvider.value) || 'auto';
+        const groqKey = typeof getLiveApiKey === 'function' ? getLiveApiKey('groq') : '';
+        const openaiKey = typeof getLiveApiKey === 'function' ? getLiveApiKey('openai') : '';
+
+        const providers = [];
+        if (pref === 'groq') {
+          if (groqKey) providers.push({ id: 'groq', key: groqKey, label: 'Groq Whisper' });
+        } else if (pref === 'openai') {
+          if (openaiKey) providers.push({ id: 'openai', key: openaiKey, label: 'OpenAI Whisper' });
+        } else {
+          if (groqKey) providers.push({ id: 'groq', key: groqKey, label: 'Groq Whisper' });
+          if (openaiKey) providers.push({ id: 'openai', key: openaiKey, label: 'OpenAI Whisper' });
+        }
+
+        if (!providers.length) {
+          showToast('Add a Groq or OpenAI API key in AI Settings first');
+          return;
+        }
+
+        const setProgress = (pct, text) => {
+          if (raDom.alignProgressWrap) raDom.alignProgressWrap.classList.remove('hidden');
+          if (raDom.alignProgressBar) raDom.alignProgressBar.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+          if (raDom.alignStatusText) raDom.alignStatusText.textContent = text;
+        };
+
+        raState.isAligning = true;
+        raState.alignAbortController = new AbortController();
+        const signal = raState.alignAbortController.signal;
+        if (raDom.btnWhisperAlign) raDom.btnWhisperAlign.disabled = true;
+        if (raDom.btnCancelAlign) raDom.btnCancelAlign.classList.remove('hidden');
+
+        try {
+          const targetSentences = getTargetSentencesForTrack(track);
+          const blob = track.audioBlob;
+          let whisperWords = [];
+          let usedProviderLabel = providers[0].label;
+
+          const transcribeWithFallback = async (chunkBlob, chunkName) => {
+            let lastErr = null;
+            for (const prov of providers) {
+              try {
+                usedProviderLabel = prov.label;
+                return await transcribeChunkWithWhisper(chunkBlob, chunkName, prov.id, prov.key, signal);
+              } catch (err) {
+                if (signal.aborted) throw err;
+                lastErr = err;
+                console.warn(`${prov.label} failed, trying fallback if available:`, err);
+              }
+            }
+            throw lastErr || new Error('Whisper transcription failed');
+          };
+
+          if (blob.size <= RA_MAX_DIRECT_WHISPER_BYTES) {
+            setProgress(25, `Transcribing with ${providers[0].label}...`);
+            whisperWords = await transcribeWithFallback(blob, track.fileName || 'audio.mp3');
+            setProgress(85, `Aligning ${whisperWords.length.toLocaleString()} spoken words to book text...`);
+          } else {
+            setProgress(8, 'Decoding large audiobook into 10-min chunks...');
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtx) throw new Error('Web Audio API unavailable for chunking large files');
+            const decodeCtx = new AudioCtx();
+            let decodedBuffer;
+            try {
+              const arrayBuf = await blob.arrayBuffer();
+              decodedBuffer = await decodeCtx.decodeAudioData(arrayBuf);
+            } catch (decErr) {
+              throw new Error('Could not decode large file in browser memory. Try uploading per-chapter MP3/M4A files.');
+            } finally {
+              try { decodeCtx.close(); } catch (_) {}
+            }
+
+            const totalDur = decodedBuffer.duration;
+            const totalChunks = Math.max(1, Math.ceil(totalDur / RA_WHISPER_CHUNK_SECONDS));
+            for (let c = 0; c < totalChunks; c++) {
+              if (signal.aborted) throw new Error('Alignment cancelled');
+              const startSec = c * RA_WHISPER_CHUNK_SECONDS;
+              const endSec = Math.min(totalDur, (c + 1) * RA_WHISPER_CHUNK_SECONDS);
+              const pct = 12 + Math.round((c / totalChunks) * 73);
+              setProgress(pct, `Aligning chunk ${c + 1}/${totalChunks} (${formatAudioTime(startSec)}–${formatAudioTime(endSec)})...`);
+              const chunkWav = encodeMono16kWavBlob(decodedBuffer, startSec, endSec);
+              const chunkWords = await transcribeWithFallback(chunkWav, `chunk_${c + 1}.wav`);
+              for (const w of chunkWords) {
+                whisperWords.push({
+                  norm: w.norm,
+                  start: Number((w.start + startSec).toFixed(3)),
+                  end: Number((w.end + startSec).toFixed(3))
+                });
+              }
+            }
+            setProgress(90, `Matching ${whisperWords.length.toLocaleString()} words to book sentences...`);
+          }
+
+          if (signal.aborted) throw new Error('Alignment cancelled');
+          const dur = Number.isFinite(raAudio.duration) && raAudio.duration > 0 ? raAudio.duration : (track.durationSec || 60);
+          const aligned = alignWhisperWordsToSentences(whisperWords, targetSentences, dur);
+          if (!aligned.timings.length) throw new Error('No book sentences available to align');
+
+          track.sentenceTimings = aligned.timings;
+          track.syncMethod = aligned.coveragePct >= 10 ? 'whisper' : 'estimated';
+          track.syncProvider = usedProviderLabel;
+          track.syncCoveragePct = aligned.coveragePct;
+          track.syncOffsetSec = 0;
+          track.anchors = [];
+
+          await updateAudioTrackMetaInDb(track.id, {
+            sentenceTimings: track.sentenceTimings,
+            syncMethod: track.syncMethod,
+            syncProvider: track.syncProvider,
+            syncCoveragePct: track.syncCoveragePct,
+            syncOffsetSec: 0,
+            anchors: []
+          });
+
+          setProgress(100, `Synced ${aligned.timings.length} sentences (${aligned.coveragePct}% word anchor match)`);
+          updateReadAlongSyncUi();
+          renderReadAlongTracksList();
+          syncHighlightToCurrentAudioTime(false);
+          showToast(track.syncMethod === 'whisper'
+            ? `Whisper sync complete (${aligned.coveragePct}% matched)`
+            : 'Audio text did not match this chapter closely — using estimated sync');
+        } catch (err) {
+          if (err && err.name === 'AbortError' || String(err && err.message).includes('cancelled')) {
+            setProgress(0, 'Alignment cancelled.');
+            showToast('Whisper alignment cancelled');
+          } else {
+            setProgress(0, `Error: ${err && err.message ? err.message : 'Alignment failed'}`);
+            showToast(`Whisper sync failed: ${err && err.message ? err.message.slice(0, 80) : 'Check API key'}`);
+          }
+        } finally {
+          raState.isAligning = false;
+          raState.alignAbortController = null;
+          if (raDom.btnWhisperAlign) raDom.btnWhisperAlign.disabled = false;
+          if (raDom.btnCancelAlign) raDom.btnCancelAlign.classList.add('hidden');
+        }
+      }
+
+      function populateReadAlongChapterSelect() {
+        const book = getCurrentBook();
+        if (!raDom.chapterSelect || !book) return;
+        raDom.chapterSelect.innerHTML = book.chapters.map((ch, i) =>
+          `<option value="${i}">Chapter ${i + 1}: ${escapeHtml(ch.title || `Section ${i + 1}`)}</option>`
+        ).join('');
+        raDom.chapterSelect.value = String(Math.min(book.chapters.length - 1, Math.max(0, state.currentChapterIdx || 0)));
+      }
+
+      function updateReadAlongScopeUi() {
+        const isChapter = raState.uploadScope === 'chapter';
+        if (raDom.btnScopeBook) {
+          raDom.btnScopeBook.className = !isChapter
+            ? 'px-2.5 py-2 rounded-xl border border-amber-600 bg-amber-600/15 tone-amber font-semibold transition-colors'
+            : 'px-2.5 py-2 rounded-xl border border-themed muted-text font-medium hover-surface transition-colors';
+        }
+        if (raDom.btnScopeChapter) {
+          raDom.btnScopeChapter.className = isChapter
+            ? 'px-2.5 py-2 rounded-xl border border-amber-600 bg-amber-600/15 tone-amber font-semibold transition-colors'
+            : 'px-2.5 py-2 rounded-xl border border-themed muted-text font-medium hover-surface transition-colors';
+        }
+        if (raDom.chapterPickerWrap) raDom.chapterPickerWrap.classList.toggle('hidden', !isChapter);
+      }
+
+      function renderReadAlongTracksList() {
+        if (!raDom.tracksList) return;
+        const book = getCurrentBook();
+        const tracks = raState.tracks || [];
+        const totalBytes = tracks.reduce((sum, t) => sum + (Number(t.sizeBytes) || 0), 0);
+        if (raDom.storageSummary) {
+          raDom.storageSummary.textContent = tracks.length ? `${tracks.length} file${tracks.length > 1 ? 's' : ''} • ${formatByteSize(totalBytes)}` : '';
+        }
+        if (!tracks.length) {
+          raDom.tracksList.innerHTML = `<div class="p-3 rounded-xl border border-dashed border-themed text-center muted-text">No audiobook attached yet. Upload an MP3, M4A, M4B, or WAV above.</div>`;
+          if (raDom.syncPanel) raDom.syncPanel.classList.add('hidden');
+          return;
+        }
+        raDom.tracksList.innerHTML = tracks.map(t => {
+          const isActive = raState.activeTrack && raState.activeTrack.id === t.id;
+          const scopeLabel = t.scope === 'chapter'
+            ? `Ch. ${Number(t.chapterIdx) + 1}${book && book.chapters[t.chapterIdx] ? ` — ${book.chapters[t.chapterIdx].title}` : ''}`
+            : 'Whole Book';
+          const isWhisper = t.syncMethod === 'whisper';
+          const badgeHtml = isWhisper
+            ? `<span class="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-600/15 tone-emerald">Whisper Sync</span>`
+            : `<span class="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-600/15 tone-amber">Est. Sync</span>`;
+          return `
+            <div class="p-2.5 rounded-xl border ${isActive ? 'border-amber-600 bg-amber-600/10' : 'border-themed subtle-surface'} space-y-1.5">
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <div class="font-semibold truncate ink-strong">${escapeHtml(t.fileName || 'Audiobook')}</div>
+                  <div class="text-[11px] muted-text truncate">${escapeHtml(scopeLabel)} &bull; ${formatByteSize(t.sizeBytes)}${t.durationSec ? ' &bull; ' + formatAudioTime(t.durationSec) : ''}</div>
+                </div>
+                ${badgeHtml}
+              </div>
+              <div class="flex items-center justify-between gap-2 pt-1">
+                <span class="text-[10px] muted-text tabular-nums">${t.lastTimeSec > 1 ? 'Saved at ' + formatAudioTime(t.lastTimeSec) : 'Start (00:00)'}</span>
+                <div class="flex items-center gap-1.5">
+                  <button type="button" data-ra-load="${escapeHtml(t.id)}" class="px-2.5 py-1 rounded-lg ${isActive ? 'bg-amber-600 text-white' : 'border border-themed hover-surface'} text-[11px] font-semibold">
+                    ${isActive ? 'Active' : 'Load'}
+                  </button>
+                  <button type="button" data-ra-delete="${escapeHtml(t.id)}" class="px-2 py-1 rounded-lg border border-themed muted-text hover:text-red-500 text-[11px]">
+                    Remove
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      function openReadAlongModal() {
+        const book = getCurrentBook();
+        if (raDom.modalBookLabel && book) {
+          raDom.modalBookLabel.textContent = `${book.title} — MP3, M4A, M4B, or WAV`;
+        }
+        populateReadAlongChapterSelect();
+        updateReadAlongScopeUi();
+        renderReadAlongTracksList();
+        updateReadAlongSyncUi();
+        if (raDom.modalBackdrop) raDom.modalBackdrop.classList.remove('hidden');
+      }
+
+      function closeReadAlongModal() {
+        if (raDom.modalBackdrop) raDom.modalBackdrop.classList.add('hidden');
+      }
+
+      async function handleAudioFileUpload(file) {
+        if (!file) return;
+        const book = getCurrentBook();
+        if (!book) return;
+        const lower = String(file.name || '').toLowerCase();
+        if (lower.endsWith('.aax')) {
+          showToast('Audible .aax files are DRM-protected. Please use DRM-free MP3, M4A, M4B, or WAV.');
+          return;
+        }
+        const validExt = /\.(mp3|m4a|m4b|wav|aac|ogg|opus|flac)$/i.test(lower);
+        const validMime = String(file.type || '').startsWith('audio/') || file.type === 'video/mp4';
+        if (!validExt && !validMime) {
+          showToast('Please select an MP3, M4A, M4B, or WAV audio file.');
+          return;
+        }
+
+        const scope = raState.uploadScope === 'chapter' ? 'chapter' : 'book';
+        const chapterIdx = scope === 'chapter'
+          ? Math.max(0, Math.min(book.chapters.length - 1, Number(raDom.chapterSelect ? raDom.chapterSelect.value : state.currentChapterIdx) || 0))
+          : null;
+        const trackId = scope === 'chapter' ? `${book.id}::ch-${chapterIdx}` : `${book.id}::book`;
+
+        // Request persistent storage best-effort so browser retains large audiobooks
+        if (navigator.storage && navigator.storage.persist) {
+          navigator.storage.persist().catch(() => {});
+        }
+
+        const fixedMime = lower.endsWith('.m4b') || lower.endsWith('.m4a')
+          ? 'audio/mp4'
+          : (file.type || (lower.endsWith('.wav') ? 'audio/wav' : 'audio/mpeg'));
+
+        const record = {
+          id: trackId,
+          bookId: book.id,
+          scope,
+          chapterIdx,
+          fileName: file.name,
+          mimeType: fixedMime,
+          sizeBytes: file.size,
+          durationSec: 0,
+          audioBlob: file,
+          syncMethod: 'estimated',
+          sentenceTimings: [],
+          anchors: [],
+          syncOffsetSec: 0,
+          lastTimeSec: 0,
+          playbackRate: Number(getReadAlongPrefs().lastRate) || 1.0,
+          updatedAt: Date.now()
+        };
+
+        try {
+          showToast(`Saving ${file.name} (${formatByteSize(file.size)}) to device...`);
+          await saveAudioTrackToDb(record);
+          await loadReadAlongForCurrentBook();
+          await loadAudioTrackRecord(record, false);
+          showToast(`Attached "${file.name}" — ready to play or run Whisper Auto-Align!`);
+        } catch (err) {
+          console.error('Failed saving audiobook to IndexedDB:', err);
+          showToast('Could not save audio file (device storage may be full).');
+        }
+      }
+
+      // Wire Read Along Audio Element Events
+      raAudio.addEventListener('play', () => {
+        updateReadAlongPlayUi();
+        startReadAlongRafLoop();
+      });
+      raAudio.addEventListener('pause', () => {
+        updateReadAlongPlayUi();
+        persistActiveReadAlongPosition(true);
+      });
+      raAudio.addEventListener('timeupdate', () => {
+        updateReadAlongTimeUi();
+        syncHighlightToCurrentAudioTime(true);
+      });
+      raAudio.addEventListener('seeked', () => {
+        updateReadAlongTimeUi();
+        syncHighlightToCurrentAudioTime(true);
+        persistActiveReadAlongPosition(true);
+      });
+      raAudio.addEventListener('ratechange', () => {
+        updateReadAlongSyncUi();
+        persistActiveReadAlongPosition(true);
+      });
+      raAudio.addEventListener('ended', async () => {
+        updateReadAlongPlayUi();
+        persistActiveReadAlongPosition(true);
+        // Auto-advance to the next chapter's attached audio if playing per-chapter files
+        const cur = raState.activeTrack;
+        if (cur && cur.scope === 'chapter') {
+          const nextTrack = raState.tracks.find(t => t.scope === 'chapter' && Number(t.chapterIdx) === Number(cur.chapterIdx) + 1);
+          if (nextTrack) {
+            nextTrack.lastTimeSec = 0;
+            showToast(`Advancing to Chapter ${Number(nextTrack.chapterIdx) + 1}...`);
+            await loadAudioTrackRecord(nextTrack, true);
+          }
+        }
+      });
+
+      // Pause auto-scroll follow if user manually scrolls away during playback (1-tap Follow button re-locks)
+      window.addEventListener('scroll', () => {
+        if (!raAudio.paused && raState.autoFollow && !raState.isAutoScrolling) {
+          // Only turn off auto-follow if the active sentence scrolled completely out of view
+          if (raState.activeSentenceIdx >= 0 && window.epubSentences[raState.activeSentenceIdx]) {
+            const firstTok = window.epubAllTokens[window.epubSentences[raState.activeSentenceIdx].startTok];
+            if (firstTok) {
+              const r = firstTok.getBoundingClientRect();
+              if (r.bottom < -120 || r.top > window.innerHeight + 120) {
+                raState.autoFollow = false;
+                updateReadAlongPlayUi();
+              }
+            }
+          }
+        }
+      }, { passive: true });
+
+      window.addEventListener('pagehide', () => persistActiveReadAlongPosition(true));
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') persistActiveReadAlongPosition(true);
+      });
+
+      // Wire Read Along UI Buttons
+      if (raDom.btnToolbar) {
+        raDom.btnToolbar.addEventListener('click', () => {
+          if (hasReadAlongAudioLoaded() && raState.barHiddenByUser) {
+            raState.barHiddenByUser = false;
+            syncReadAlongBarVisibility();
+          } else {
+            openReadAlongModal();
+          }
+        });
+      }
+      if (raDom.btnOpenManager) raDom.btnOpenManager.addEventListener('click', openReadAlongModal);
+      if (raDom.btnCloseModal) raDom.btnCloseModal.addEventListener('click', closeReadAlongModal);
+      if (raDom.modalBackdrop) {
+        raDom.modalBackdrop.addEventListener('click', (e) => {
+          if (e.target === raDom.modalBackdrop) closeReadAlongModal();
+        });
+      }
+      if (raDom.btnHideBar) {
+        raDom.btnHideBar.addEventListener('click', () => {
+          raState.barHiddenByUser = true;
+          syncReadAlongBarVisibility();
+        });
+      }
+      if (raDom.btnFollow) {
+        raDom.btnFollow.addEventListener('click', () => {
+          raState.autoFollow = !raState.autoFollow;
+          updateReadAlongPlayUi();
+          if (raState.autoFollow) {
+            raState.activeSentenceIdx = -1; // Force scroll back to current sentence
+            syncHighlightToCurrentAudioTime(true);
+          }
+        });
+      }
+      if (raDom.btnPlayPause) raDom.btnPlayPause.addEventListener('click', toggleReadAlongPlay);
+      if (raDom.btnBack15) raDom.btnBack15.addEventListener('click', () => seekReadAlongBy(-15));
+      if (raDom.btnFwd15) raDom.btnFwd15.addEventListener('click', () => seekReadAlongBy(15));
+      if (raDom.btnSpeed) {
+        raDom.btnSpeed.addEventListener('click', () => {
+          const cur = Number(raAudio.playbackRate) || 1.0;
+          const idx = RA_SPEEDS.findIndex(s => Math.abs(s - cur) < 0.05);
+          const next = RA_SPEEDS[(idx + 1) % RA_SPEEDS.length];
+          raAudio.playbackRate = next;
+          updateReadAlongSyncUi();
+          persistActiveReadAlongPosition(true);
+          showToast(`Speed: ${next}×`);
+        });
+      }
+      if (raDom.scrubber) {
+        raDom.scrubber.addEventListener('input', () => {
+          raState.isScrubbing = true;
+          const v = Number(raDom.scrubber.value) || 0;
+          if (raDom.timeCurrent) raDom.timeCurrent.textContent = formatAudioTime(v);
+        });
+        raDom.scrubber.addEventListener('change', () => {
+          const v = Number(raDom.scrubber.value) || 0;
+          raState.isScrubbing = false;
+          raAudio.currentTime = v;
+          updateReadAlongTimeUi();
+          syncHighlightToCurrentAudioTime(true);
+          persistActiveReadAlongPosition(true);
+        });
+      }
+      if (raDom.btnQuickSync) raDom.btnQuickSync.addEventListener('click', calibrateAnchorToCurrentScreenSentence);
+      if (raDom.btnSyncAnchor) raDom.btnSyncAnchor.addEventListener('click', calibrateAnchorToCurrentScreenSentence);
+      if (raDom.btnResetSync) {
+        raDom.btnResetSync.addEventListener('click', async () => {
+          const track = raState.activeTrack;
+          if (!track) return;
+          const dur = Number.isFinite(raAudio.duration) && raAudio.duration > 0 ? raAudio.duration : (track.durationSec || 60);
+          track.anchors = [];
+          track.syncOffsetSec = 0;
+          track.syncMethod = 'estimated';
+          track.sentenceTimings = buildEstimatedSentenceTimings(dur, getTargetSentencesForTrack(track), []);
+          await updateAudioTrackMetaInDb(track.id, {
+            anchors: [],
+            syncOffsetSec: 0,
+            syncMethod: 'estimated',
+            sentenceTimings: track.sentenceTimings
+          });
+          syncHighlightToCurrentAudioTime(false);
+          updateReadAlongSyncUi();
+          showToast('Reset to clean estimated sync');
+        });
+      }
+
+      const nudgeSyncOffset = async (delta) => {
+        const track = raState.activeTrack;
+        if (!track) return;
+        track.syncOffsetSec = Number(((Number(track.syncOffsetSec) || 0) + delta).toFixed(2));
+        await updateAudioTrackMetaInDb(track.id, { syncOffsetSec: track.syncOffsetSec });
+        updateReadAlongSyncUi();
+        syncHighlightToCurrentAudioTime(false);
+      };
+      if (raDom.btnOffsetDec) raDom.btnOffsetDec.addEventListener('click', () => nudgeSyncOffset(-0.5));
+      if (raDom.btnOffsetInc) raDom.btnOffsetInc.addEventListener('click', () => nudgeSyncOffset(0.5));
+
+      if (raDom.btnScopeBook) {
+        raDom.btnScopeBook.addEventListener('click', () => {
+          raState.uploadScope = 'book';
+          updateReadAlongScopeUi();
+        });
+      }
+      if (raDom.btnScopeChapter) {
+        raDom.btnScopeChapter.addEventListener('click', () => {
+          raState.uploadScope = 'chapter';
+          populateReadAlongChapterSelect();
+          updateReadAlongScopeUi();
+        });
+      }
+      if (raDom.fileInput) {
+        raDom.fileInput.addEventListener('change', async (e) => {
+          const file = e.target.files && e.target.files[0];
+          e.target.value = '';
+          if (file) await handleAudioFileUpload(file);
+        });
+      }
+      if (raDom.tracksList) {
+        raDom.tracksList.addEventListener('click', async (e) => {
+          const loadBtn = e.target.closest('[data-ra-load]');
+          if (loadBtn) {
+            const id = loadBtn.dataset.raLoad;
+            const found = raState.tracks.find(t => t.id === id) || await getAudioTrackById(id);
+            if (found) {
+              await loadAudioTrackRecord(found, false);
+              showToast(`Loaded "${found.fileName}"`);
+            }
+            return;
+          }
+          const delBtn = e.target.closest('[data-ra-delete]');
+          if (delBtn) {
+            const id = delBtn.dataset.raDelete;
+            if (raState.activeTrack && raState.activeTrack.id === id) {
+              pauseReadAlongIfPlaying();
+              clearReadAlongHighlight();
+              raState.activeTrack = null;
+              if (raState.objectUrl) {
+                try { URL.revokeObjectURL(raState.objectUrl); } catch (_) {}
+                raState.objectUrl = null;
+              }
+              raAudio.removeAttribute('src');
+              raAudio.load();
+            }
+            await deleteAudioTrackFromDb(id);
+            await loadReadAlongForCurrentBook();
+            showToast('Removed audio track from device');
+          }
+        });
+      }
+      if (raDom.btnWhisperAlign) raDom.btnWhisperAlign.addEventListener('click', runWhisperAlignmentForActiveTrack);
+      if (raDom.btnCancelAlign) {
+        raDom.btnCancelAlign.addEventListener('click', () => {
+          if (raState.alignAbortController) raState.alignAbortController.abort();
+        });
+      }
+      if (raDom.btnPlayFromAi) {
+        raDom.btnPlayFromAi.addEventListener('click', () => {
+          const sIdx = state.currentExplanation && state.currentExplanation.sentIdx >= 0
+            ? state.currentExplanation.sentIdx
+            : findVisibleReadingSentenceIdx();
+          dismissAiPanel();
+          if (sIdx >= 0) jumpReadAlongToSentence(sIdx, true);
         });
       }
 
