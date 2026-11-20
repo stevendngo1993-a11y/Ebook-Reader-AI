@@ -761,17 +761,6 @@
 
     <!-- Panel Body -->
     <div id="ai-panel-body" class="p-4 overflow-y-auto overscroll-contain space-y-3 text-[16.5px]">
-      <!-- Interactive Phrase Builder Bar (Expand to 2+ words easily on touch screens) -->
-      <div id="phrase-builder-bar" class="flex flex-wrap items-center justify-between gap-1.5 pb-2 border-b border-themed text-xs">
-        <div class="flex flex-wrap items-center gap-1">
-          <button id="btn-phrase-add-prev" type="button" class="px-2 py-1 rounded-lg border border-themed font-medium hover-surface disabled:opacity-35 disabled:pointer-events-none transition-colors" title="Include previous word in phrase">+ Prev Word</button>
-          <button id="btn-phrase-add-next" type="button" class="px-2 py-1 rounded-lg bg-amber-600/15 tone-amber border border-amber-600/30 font-semibold hover:bg-amber-600/25 disabled:opacity-35 disabled:pointer-events-none transition-colors" title="Include next word to make a 2+ word phrase">+ Next Word</button>
-          <button id="btn-phrase-sentence" type="button" class="px-2 py-1 rounded-lg bg-sky-600/15 tone-sky border border-sky-600/30 font-semibold hover:bg-sky-600/25 transition-colors" title="Select whole sentence">Whole Sentence</button>
-          <button id="btn-phrase-reset" type="button" class="px-2 py-1 rounded-lg border border-themed muted-text hover-surface transition-colors" title="Reset to single word">1 Word</button>
-        </div>
-        <span class="text-[11px] muted-text">Swipe down to close</span>
-      </div>
-
       <!-- Saved Word Mastery & Encounter Bar (visible when active word/phrase is saved) -->
       <div id="ai-vocab-status-bar" class="hidden flex flex-wrap items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl border border-themed subtle-surface text-xs">
         <div class="flex items-center gap-1" role="group" aria-label="Word mastery status">
@@ -1415,10 +1404,6 @@
         aiResult: document.getElementById('ai-result'),
         btnCloseAi: document.getElementById('btn-close-ai'),
         btnCopyAi: document.getElementById('btn-copy-ai'),
-        phraseBuilderBar: document.getElementById('phrase-builder-bar'),
-        btnPhraseAddPrev: document.getElementById('btn-phrase-add-prev'),
-        btnPhraseAddNext: document.getElementById('btn-phrase-add-next'),
-        btnPhraseReset: document.getElementById('btn-phrase-reset'),
         btnToggleLangOrder: document.getElementById('btn-toggle-lang-order'),
         langOrderSelect: document.getElementById('lang-order-select'),
         btnSaveVocab: document.getElementById('btn-save-vocab'),
@@ -4912,18 +4897,6 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
       let phraseRange = { startIdx: -1, endIdx: -1, anchorIdx: -1 };
       let pendingSelectedPhrase = { phrase: '', contextSentence: '' };
 
-      function updatePhraseBuilderButtons() {
-        const total = window.epubAllTokens.length;
-        if (el.btnPhraseAddPrev) {
-          el.btnPhraseAddPrev.disabled = phraseRange.startIdx <= 0;
-          el.btnPhraseAddPrev.classList.toggle('opacity-40', phraseRange.startIdx <= 0);
-        }
-        if (el.btnPhraseAddNext) {
-          el.btnPhraseAddNext.disabled = phraseRange.endIdx < 0 || phraseRange.endIdx >= total - 1;
-          el.btnPhraseAddNext.classList.toggle('opacity-40', phraseRange.endIdx < 0 || phraseRange.endIdx >= total - 1);
-        }
-      }
-
       function highlightOnlyRange(startIdx, endIdx) {
         if (!window.epubAllTokens.length) return;
         const lo = Math.max(0, Math.min(startIdx, endIdx));
@@ -4945,7 +4918,6 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
           ? explicitAnchorIdx
           : (phraseRange.anchorIdx >= lo && phraseRange.anchorIdx <= cappedHi ? phraseRange.anchorIdx : lo);
         phraseRange = { startIdx: lo, endIdx: cappedHi, anchorIdx: anchor };
-        updatePhraseBuilderButtons();
 
         el.chapterBody.querySelectorAll('.active-word').forEach(n => n.classList.remove('active-word'));
         const words = [];
@@ -5030,24 +5002,6 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         }
       });
 
-      // Phrase Builder buttons inside AI panel ("+ Prev Word", "+ Next Word", "1 Word")
-      el.btnPhraseAddNext.addEventListener('click', () => {
-        if (phraseRange.endIdx >= 0 && phraseRange.endIdx < window.epubAllTokens.length - 1) {
-          highlightAndExplainRange(phraseRange.startIdx, phraseRange.endIdx + 1, phraseRange.anchorIdx);
-        }
-      });
-      el.btnPhraseAddPrev.addEventListener('click', () => {
-        if (phraseRange.startIdx > 0) {
-          highlightAndExplainRange(phraseRange.startIdx - 1, phraseRange.endIdx, phraseRange.anchorIdx);
-        }
-      });
-      el.btnPhraseReset.addEventListener('click', () => {
-        const targetIdx = phraseRange.anchorIdx >= 0 ? phraseRange.anchorIdx : phraseRange.startIdx;
-        if (targetIdx >= 0) {
-          highlightAndExplainRange(targetIdx, targetIdx, targetIdx);
-        }
-      });
-
       // Helper to expand a single word index to the start and end word indices of its full sentence
       const ABBREV_END_RE = /^(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|e\.g|i\.e|U\.S|U\.K|No|Vol|Ch|Fig|Inc|Ltd)\.?$/i;
       function isSentenceEndToken(tokText) {
@@ -5085,15 +5039,6 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
           end++;
         }
         return { start, end };
-      }
-
-      const btnPhraseSentence = document.getElementById('btn-phrase-sentence');
-      if (btnPhraseSentence) {
-        btnPhraseSentence.addEventListener('click', () => {
-          const anchorIdx = phraseRange.anchorIdx >= 0 ? phraseRange.anchorIdx : (phraseRange.startIdx >= 0 ? phraseRange.startIdx : 0);
-          const bounds = findSentenceTokenBounds(anchorIdx);
-          highlightAndExplainRange(bounds.start, bounds.end, anchorIdx);
-        });
       }
 
       // Finger Slide-Across Gesture (iPhone / iPad Touch + Desktop Mouse Drag)
