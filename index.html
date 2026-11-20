@@ -466,12 +466,12 @@
 
         <button id="btn-spread-toggle" type="button" title="Toggle 2-Column Spread" class="hidden md:inline-flex items-center px-2.5 py-1.5 rounded-full text-xs font-medium border border-themed hover-surface transition-colors">1-Col</button>
 
-        <label for="epub-file-input" class="cursor-pointer inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-themed hover-surface transition-colors">
+        <label for="epub-file-input" title="Import EPUB or PDF Book" class="cursor-pointer inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-themed hover-surface transition-colors">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v12m0-12l-4 4m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
-          <span class="hidden sm:inline">Import EPUB</span>
-          <span class="sm:hidden">EPUB</span>
+          <span class="hidden sm:inline">Import Book</span>
+          <span class="sm:hidden">Import</span>
         </label>
-        <input id="epub-file-input" type="file" accept=".epub,application/epub+zip" class="hidden" />
+        <input id="epub-file-input" type="file" accept=".epub,.pdf,application/epub+zip,application/pdf" class="hidden" />
 
         <button id="btn-appearance" type="button" title="Text Size & Background" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-themed hover-surface transition-colors" aria-label="Appearance Settings">
           <span class="font-serif text-sm leading-none">Aa</span>
@@ -626,7 +626,7 @@
     <div class="p-3 border-t border-themed space-y-2">
       <label for="epub-file-input" class="w-full cursor-pointer flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-semibold bg-amber-600 text-white hover:bg-amber-700 transition-colors">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v12m0-12l-4 4m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
-        Import .epub Book
+        Import EPUB / PDF Book
       </label>
     </div>
   </aside>
@@ -666,7 +666,7 @@
     <!-- Drag & Drop Overlay -->
     <div id="drag-overlay" class="hidden fixed inset-0 z-50 bg-amber-600/15 backdrop-blur-sm border-4 border-dashed border-amber-600 flex items-center justify-center pointer-events-none">
       <div class="px-6 py-4 rounded-2xl shadow-xl surface-panel text-center">
-        <div class="text-base font-semibold">Drop your .epub book to import</div>
+        <div class="text-base font-semibold">Drop your .epub or .pdf book to import</div>
         <div class="text-xs muted-text mt-1">Parsed locally in your browser</div>
       </div>
     </div>
@@ -1821,6 +1821,323 @@
 
         return {
           id: 'epub-' + Date.now(),
+          format: 'epub',
+          title: bookTitle,
+          author: bookAuthor,
+          coverDataUrl,
+          isSample: false,
+          chapters
+        };
+      }
+
+      // ==========================================
+      // 7b. Client-Side PDF Parser (Reflowable Text, Outline Chapters & Cover Thumbnail)
+      // ==========================================
+      let pdfJsLoadPromise = null;
+      const PDFJS_VERSION = '3.11.174';
+      const PDFJS_SCRIPT_URL = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.min.js`;
+      const PDFJS_WORKER_URL = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.js`;
+
+      function ensurePdfJsLoaded() {
+        if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+        if (pdfJsLoadPromise) return pdfJsLoadPromise;
+        pdfJsLoadPromise = new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = PDFJS_SCRIPT_URL;
+          script.async = true;
+          script.onload = () => {
+            if (window.pdfjsLib) {
+              try {
+                if (window.pdfjsLib.GlobalWorkerOptions) {
+                  window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
+                }
+              } catch (_) {}
+              resolve(window.pdfjsLib);
+            } else {
+              pdfJsLoadPromise = null;
+              reject(new Error('PDF engine loaded but pdfjsLib was unavailable.'));
+            }
+          };
+          script.onerror = () => {
+            pdfJsLoadPromise = null;
+            reject(new Error('Could not load PDF engine (connect to the internet once to cache PDF support).'));
+          };
+          document.head.appendChild(script);
+        });
+        return pdfJsLoadPromise;
+      }
+
+      function buildReflowHtmlFromPdfTextContent(textContent, pageHeight = 792) {
+        const rawItems = Array.isArray(textContent?.items) ? textContent.items : [];
+        if (!rawItems.length) return { html: '', wordCount: 0, detectedHeading: '' };
+
+        // 1. Collect positioned text fragments
+        const pieces = [];
+        for (const it of rawItems) {
+          if (!it || typeof it.str !== 'string') continue;
+          const str = it.str.replace(/\u00a0/g, ' ');
+          if (!str.trim()) continue;
+          const tr = Array.isArray(it.transform) ? it.transform : [12, 0, 0, 12, 0, 0];
+          const fontSize = Math.max(6, Math.hypot(tr[0] || 0, tr[1] || 0) || Math.abs(tr[3] || 12));
+          const x = Number(tr[4]) || 0;
+          const y = Number(tr[5]) || 0;
+          const w = Number(it.width) || (str.length * fontSize * 0.45);
+          pieces.push({ str, x, y, w, fontSize, hasEOL: Boolean(it.hasEOL) });
+        }
+        if (!pieces.length) return { html: '', wordCount: 0, detectedHeading: '' };
+
+        // Sort top-to-bottom (higher y first in PDF coords), then left-to-right
+        pieces.sort((a, b) => {
+          const tol = Math.min(a.fontSize, b.fontSize) * 0.45;
+          if (Math.abs(b.y - a.y) > tol) return b.y - a.y;
+          return a.x - b.x;
+        });
+
+        // 2. Group fragments into visual lines
+        const lines = [];
+        for (const p of pieces) {
+          const prev = lines[lines.length - 1];
+          if (prev && Math.abs(prev.y - p.y) <= Math.max(prev.fontSize, p.fontSize) * 0.48) {
+            const gap = p.x - prev.endX;
+            const needSpace = gap > (prev.fontSize * 0.16) && !prev.text.endsWith(' ') && !p.str.startsWith(' ');
+            prev.text += (needSpace ? ' ' : '') + p.str;
+            prev.endX = Math.max(prev.endX, p.x + p.w);
+            prev.fontSize = Math.max(prev.fontSize, p.fontSize);
+          } else {
+            lines.push({
+              y: p.y,
+              x: p.x,
+              endX: p.x + p.w,
+              fontSize: p.fontSize,
+              text: p.str
+            });
+          }
+        }
+
+        // Clean whitespace and strip standalone edge page numbers (e.g. "42" or "- 42 -")
+        const cleanedLines = lines
+          .map(l => ({ ...l, text: l.text.replace(/\s+/g, ' ').trim() }))
+          .filter((l, idx, arr) => {
+            if (!l.text) return false;
+            const isEdge = idx === 0 || idx === arr.length - 1 || l.y < pageHeight * 0.08 || l.y > pageHeight * 0.93;
+            if (isEdge && /^[-–—\s]*\d{1,4}[-–—\s]*$/.test(l.text)) return false;
+            return true;
+          });
+        if (!cleanedLines.length) return { html: '', wordCount: 0, detectedHeading: '' };
+
+        // Estimate body font size & normal line spacing via median
+        const sizes = cleanedLines.map(l => l.fontSize).sort((a, b) => a - b);
+        const bodyFontSize = sizes[Math.floor(sizes.length * 0.5)] || 12;
+        const gaps = [];
+        for (let i = 1; i < cleanedLines.length; i++) {
+          const dy = cleanedLines[i - 1].y - cleanedLines[i].y;
+          if (dy > 2 && dy < bodyFontSize * 4) gaps.push(dy);
+        }
+        gaps.sort((a, b) => a - b);
+        const medianGap = gaps.length ? gaps[Math.floor(gaps.length * 0.5)] : bodyFontSize * 1.35;
+
+        // 3. Reconstruct headings & clean flowing paragraphs (with hyphenation repair)
+        const blocks = [];
+        let curPara = '';
+        let prevLine = null;
+        let detectedHeading = '';
+
+        const flushPara = () => {
+          const trimmed = curPara.replace(/\s+/g, ' ').trim();
+          if (trimmed) blocks.push({ tag: 'p', text: trimmed });
+          curPara = '';
+        };
+
+        for (const line of cleanedLines) {
+          const text = line.text;
+          const isLargeHeading = line.fontSize >= bodyFontSize * 1.24 && text.length <= 120;
+          const isChapterCue = /^(?:chapter|part|section|book)\s+(?:[ivxlcdm]+|\d+)\b/i.test(text) && text.length <= 90;
+          const isBullet = /^(?:[•●▪◦‣–—-]\s+|\d+[.)]\s+)/.test(text);
+
+          if (isLargeHeading || isChapterCue) {
+            flushPara();
+            if (!detectedHeading && text.length >= 2) detectedHeading = text;
+            blocks.push({ tag: 'h2', text });
+            prevLine = line;
+            continue;
+          }
+
+          if (!curPara) {
+            curPara = text;
+            prevLine = line;
+            continue;
+          }
+
+          const dy = prevLine ? (prevLine.y - line.y) : medianGap;
+          const largeVerticalBreak = dy > medianGap * 1.38;
+          const prevEndedSentence = /[.!?"”’)]$/.test(prevLine.text);
+          const indentShift = prevLine && (line.x - prevLine.x > bodyFontSize * 1.15);
+
+          if (largeVerticalBreak || isBullet || (prevEndedSentence && indentShift)) {
+            flushPara();
+            curPara = text;
+          } else if (/[A-Za-z]-$/.test(curPara) && /^[a-z]/.test(text)) {
+            // Rejoin hyphenated word split across PDF lines (e.g. "trans-" + "formed" -> "transformed")
+            curPara = curPara.slice(0, -1) + text;
+          } else {
+            curPara += ' ' + text;
+          }
+          prevLine = line;
+        }
+        flushPara();
+
+        const html = blocks
+          .map(b => b.tag === 'h2' ? `<h2>${escapeHtml(b.text)}</h2>` : `<p>${escapeHtml(b.text)}</p>`)
+          .join('\n');
+        const wordCount = blocks.reduce((acc, b) => acc + b.text.split(/\s+/).filter(Boolean).length, 0);
+        return { html, wordCount, detectedHeading };
+      }
+
+      async function parsePdfFile(file) {
+        const pdfjsLib = await ensurePdfJsLoaded();
+        const arrayBuffer = await file.arrayBuffer();
+
+        let pdf = null;
+        try {
+          pdf = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
+        } catch (_) {
+          // Graceful fallback if worker script is blocked offline or in a strict sandbox
+          pdf = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0), disableWorker: true }).promise;
+        }
+
+        const totalPages = pdf.numPages || 0;
+        if (totalPages === 0) {
+          throw new Error('This PDF has no readable pages.');
+        }
+
+        // 1. Metadata (Title & Author)
+        let bookTitle = file.name.replace(/\.pdf$/i, '').replace(/[_-]+/g, ' ').trim() || 'Imported PDF';
+        let bookAuthor = 'PDF Document';
+        try {
+          const meta = await pdf.getMetadata();
+          const info = meta && meta.info ? meta.info : {};
+          if (info.Title && String(info.Title).trim() && !/^untitled$/i.test(String(info.Title).trim())) {
+            bookTitle = String(info.Title).trim();
+          }
+          if (info.Author && String(info.Author).trim()) {
+            bookAuthor = String(info.Author).trim();
+          }
+        } catch (_) {}
+
+        // 2. Render lightweight Page 1 thumbnail for Library Drawer
+        let coverDataUrl = '';
+        try {
+          const p1 = await pdf.getPage(1);
+          const baseVp = p1.getViewport({ scale: 1 });
+          const scale = Math.min(1.2, 160 / Math.max(1, baseVp.width));
+          const vp = p1.getViewport({ scale });
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(vp.width));
+          canvas.height = Math.max(1, Math.round(vp.height));
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            await p1.render({ canvasContext: ctx, viewport: vp }).promise;
+            coverDataUrl = canvas.toDataURL('image/jpeg', 0.78);
+          }
+        } catch (_) {}
+
+        // 3. Extract embedded PDF Outline (bookmarks) if present for real chapters
+        const outlineSplits = [];
+        try {
+          const outline = await pdf.getOutline();
+          if (Array.isArray(outline) && outline.length > 0) {
+            const seenPages = new Set();
+            for (const entry of outline.slice(0, 60)) {
+              if (!entry || !entry.title || !entry.dest) continue;
+              try {
+                const dest = typeof entry.dest === 'string' ? await pdf.getDestination(entry.dest) : entry.dest;
+                if (Array.isArray(dest) && dest[0]) {
+                  const pageIdx = await pdf.getPageIndex(dest[0]);
+                  if (Number.isInteger(pageIdx) && pageIdx >= 0 && pageIdx < totalPages && !seenPages.has(pageIdx)) {
+                    seenPages.add(pageIdx);
+                    outlineSplits.push({ pageIdx, title: String(entry.title).trim().slice(0, 90) });
+                  }
+                }
+              } catch (_) {}
+            }
+            outlineSplits.sort((a, b) => a.pageIdx - b.pageIdx);
+          }
+        } catch (_) {}
+
+        // 4. Extract & reflow text from every page (yielding periodically so iOS Safari stays responsive)
+        const pageRecords = [];
+        let totalWordCount = 0;
+        for (let pNum = 1; pNum <= totalPages; pNum++) {
+          if (pNum === 1 || pNum % 5 === 0 || pNum === totalPages) {
+            showToast(`Importing PDF (page ${pNum} of ${totalPages})...`);
+            await new Promise(r => setTimeout(r, 0));
+          }
+          const page = await pdf.getPage(pNum);
+          const vp = page.getViewport({ scale: 1 });
+          const textContent = await page.getTextContent();
+          const built = buildReflowHtmlFromPdfTextContent(textContent, vp.height || 792);
+          totalWordCount += built.wordCount;
+          pageRecords.push({
+            pageNum: pNum,
+            html: built.html,
+            wordCount: built.wordCount,
+            detectedHeading: built.detectedHeading
+          });
+        }
+
+        if (totalWordCount === 0) {
+          throw new Error('This PDF appears to be scanned images with no selectable text layer. Please import a text-based PDF or EPUB.');
+        }
+
+        // 5. Group pages into clean chapters (embedded outline -> chapter headings -> 10-page sections)
+        const chapters = [];
+        if (outlineSplits.length >= 2) {
+          if (outlineSplits[0].pageIdx > 0) {
+            outlineSplits.unshift({ pageIdx: 0, title: bookTitle });
+          }
+          for (let i = 0; i < outlineSplits.length; i++) {
+            const startIdx = outlineSplits[i].pageIdx;
+            const endIdx = (i + 1 < outlineSplits.length) ? outlineSplits[i + 1].pageIdx - 1 : totalPages - 1;
+            const slice = pageRecords.slice(startIdx, endIdx + 1).filter(pr => pr.html);
+            if (!slice.length) continue;
+            const title = outlineSplits[i].title || `Section ${chapters.length + 1}`;
+            const bodyHtml = slice.map(pr => pr.html).join('\n');
+            chapters.push({
+              title,
+              html: `<h1>${escapeHtml(title)}</h1>\n${bodyHtml}`
+            });
+          }
+        } else {
+          const pagesPerSection = totalPages <= 8 ? 1 : (totalPages <= 30 ? 5 : 10);
+          for (let start = 0; start < totalPages; start += pagesPerSection) {
+            const slice = pageRecords.slice(start, start + pagesPerSection).filter(pr => pr.html);
+            if (!slice.length) continue;
+            const firstNum = slice[0].pageNum;
+            const lastNum = slice[slice.length - 1].pageNum;
+            const firstHeading = slice.find(pr => pr.detectedHeading)?.detectedHeading || '';
+            const rangeLabel = firstNum === lastNum ? `Page ${firstNum}` : `Pages ${firstNum}–${lastNum}`;
+            const title = firstHeading && firstHeading.length <= 65
+              ? `${firstHeading} (${rangeLabel})`
+              : rangeLabel;
+            const bodyHtml = slice.map(pr => pr.html).join('\n');
+            chapters.push({
+              title,
+              html: `<h1>${escapeHtml(title)}</h1>\n${bodyHtml}`
+            });
+          }
+        }
+
+        try { if (typeof pdf.destroy === 'function') await pdf.destroy(); } catch (_) {}
+
+        if (!chapters.length) {
+          throw new Error('Could not extract readable text sections from this PDF.');
+        }
+
+        return {
+          id: 'pdf-' + Date.now(),
+          format: 'pdf',
           title: bookTitle,
           author: bookAuthor,
           coverDataUrl,
@@ -2373,7 +2690,7 @@
                   <div class="text-xs font-semibold truncate">${escapeHtml(b.title)}</div>
                   <div class="text-[11px] muted-text truncate mt-0.5">${escapeHtml(b.author)} &bull; ${b.chapters.length} section${b.chapters.length > 1 ? 's' : ''}</div>
                   <div class="flex items-center justify-between mt-1.5">
-                    ${b.isSample ? '<span class="inline-block px-1.5 py-0.5 rounded text-[10px] subtle-surface">Sample</span>' : '<span class="inline-block px-1.5 py-0.5 rounded text-[10px] bg-amber-600/15 tone-amber">Saved on Device</span>'}
+                    ${b.isSample ? '<span class="inline-block px-1.5 py-0.5 rounded text-[10px] subtle-surface">Sample</span>' : `<span class="inline-block px-1.5 py-0.5 rounded text-[10px] bg-amber-600/15 tone-amber">${b.format === 'pdf' || String(b.id || '').startsWith('pdf-') ? 'PDF' : 'EPUB'} &bull; Saved on Device</span>`}
                     <span class="text-[10px] font-medium tabular-nums muted-text">${pct > 0 ? pct + '% read' : 'New'}</span>
                   </div>
                   ${pct > 0 ? `<div class="mt-1.5 h-1 rounded-full subtle-surface overflow-hidden"><div class="h-full bg-amber-600 rounded-full" style="width:${pct}%"></div></div>` : ''}
@@ -4954,16 +5271,20 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         }
       });
 
-      // EPUB Import (File Input & Drag-Drop)
+      // EPUB & PDF Import (File Input & Drag-Drop)
       async function handleEpubUpload(file) {
         if (!file) return;
-        if (!file.name.toLowerCase().endsWith('.epub')) {
-          showToast('Please select a valid .epub file');
+        const lowerName = (file.name || '').toLowerCase();
+        const mime = (file.type || '').toLowerCase();
+        const isEpub = lowerName.endsWith('.epub') || mime.includes('epub');
+        const isPdf = lowerName.endsWith('.pdf') || mime === 'application/pdf';
+        if (!isEpub && !isPdf) {
+          showToast('Please select a valid .epub or .pdf file');
           return;
         }
-        showToast('Importing EPUB...');
+        showToast(isPdf ? 'Importing PDF...' : 'Importing EPUB...');
         try {
-          const book = await parseEpubFile(file);
+          const book = isPdf ? await parsePdfFile(file) : await parseEpubFile(file);
           const replacedBooks = state.books.filter(b => b.title === book.title && !b.isSample);
           for (const oldBook of replacedBooks) {
             await deleteBookFromDb(oldBook.id);
@@ -4976,9 +5297,9 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
           try { localStorage.setItem('lumina_last_book_id', book.id); } catch (_) {}
           renderChapter();
           closeDrawer();
-          showToast(`Saved "${book.title}" to your library`);
+          showToast(`Saved "${book.title}" (${isPdf ? 'PDF' : 'EPUB'}) to your library`);
         } catch (err) {
-          showToast(err.message || 'Could not parse EPUB file');
+          showToast(err.message || `Could not parse ${isPdf ? 'PDF' : 'EPUB'} file`);
         }
       }
 
