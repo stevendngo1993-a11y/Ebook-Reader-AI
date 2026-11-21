@@ -1125,7 +1125,10 @@
     <div class="w-full max-w-lg rounded-2xl border shadow-2xl p-5 surface-panel flex flex-col max-h-[88vh]">
       <div class="flex items-center justify-between mb-3 shrink-0">
         <div>
-          <h3 class="text-sm font-bold">Read Along Audiobook</h3>
+          <div class="flex items-center gap-1.5">
+            <h3 class="text-sm font-bold">Read Along Audiobook</h3>
+            <span class="px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-600/15 tone-emerald border border-emerald-600/25">v10</span>
+          </div>
           <p id="ra-modal-book-label" class="text-[11px] muted-text truncate max-w-[290px]">Attach MP3, M4A, M4B, or WAV &amp; sync to text</p>
         </div>
         <button id="btn-close-read-along-modal" type="button" class="p-1.5 rounded-lg hover-surface muted-text" aria-label="Close Read Along settings">
@@ -1430,6 +1433,13 @@
         if (cachedBookDb) return Promise.resolve(cachedBookDb);
         return new Promise((resolve, reject) => {
           if (typeof indexedDB === 'undefined') return reject(new Error('No IndexedDB'));
+          let settled = false;
+          const timer = setTimeout(() => {
+            if (!settled) {
+              settled = true;
+              reject(new Error('IndexedDB open timed out'));
+            }
+          }, 10000);
           const req = indexedDB.open(DB_NAME, DB_VERSION);
           req.onupgradeneeded = (e) => {
             const db = e.target.result;
@@ -1445,16 +1455,30 @@
               metaStore.createIndex('bookId', 'bookId', { unique: false });
             }
           };
-          req.onsuccess = () => {
-            cachedBookDb = req.result;
-            cachedBookDb.onclose = () => { cachedBookDb = null; };
-            cachedBookDb.onversionchange = () => {
-              try { cachedBookDb.close(); } catch (_) {}
-              cachedBookDb = null;
-            };
-            resolve(cachedBookDb);
+          req.onblocked = () => {
+            console.warn('IndexedDB upgrade waiting for another tab to close.');
           };
-          req.onerror = () => reject(req.error);
+          req.onsuccess = () => {
+            clearTimeout(timer);
+            const db = req.result;
+            cachedBookDb = db;
+            db.onclose = () => { if (cachedBookDb === db) cachedBookDb = null; };
+            db.onversionchange = () => {
+              try { db.close(); } catch (_) {}
+              if (cachedBookDb === db) cachedBookDb = null;
+            };
+            if (!settled) {
+              settled = true;
+              resolve(db);
+            }
+          };
+          req.onerror = () => {
+            clearTimeout(timer);
+            if (!settled) {
+              settled = true;
+              reject(req.error);
+            }
+          };
         });
       }
 
@@ -6700,11 +6724,17 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
       (function bindIosFirstTapAudioUnlock() {
         ensureIosPlaybackAudioSession();
         const events = ['touchstart', 'pointerdown', 'click'];
-        const handleFirstTap = () => {
+        const handleFirstTap = (ev) => {
+          const target = ev && ev.target;
+          // Never spin up competing TTS/WebAudio/SpeechSynthesis elements while user is tapping Read Along controls
+          if (target && target.closest && (target.closest('#read-along-bar') || target.closest('#read-along-modal-backdrop'))) {
+            ensureIosPlaybackAudioSession();
+            return;
+          }
           unlockSharedAudioOnTap(false);
-          events.forEach((ev) => document.removeEventListener(ev, handleFirstTap, true));
+          events.forEach((evName) => document.removeEventListener(evName, handleFirstTap, true));
         };
-        events.forEach((ev) => document.addEventListener(ev, handleFirstTap, { capture: true, passive: true }));
+        events.forEach((evName) => document.addEventListener(evName, handleFirstTap, { capture: true, passive: true }));
       })();
 
       function stopAllActiveSpeech(preserveSharedAudioElement = false) {
@@ -6716,7 +6746,7 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
           } catch (_) {}
           activeBufferSource = null;
         }
-        if (!preserveSharedAudioElement) {
+        if (!preserveSharedAudioElement && !sharedTtsAudio.paused) {
           try {
             sharedTtsAudio.onended = null;
             sharedTtsAudio.onerror = null;
@@ -7644,6 +7674,10 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         tracks: [],
         activeTrack: null,
         objectUrl: null,
+        usingSwStream: false,
+        swStreamFallbackAttempted: false,
+        mediaSessionTrackId: null,
+        durationChangeTimer: null,
         uploadScope: 'book',
         barHiddenByUser: false,
         autoFollow: true,
@@ -7662,6 +7696,14 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         alignAbortController: null,
         isAligning: false
       };
+
+      function evictSwAudioCache(trackId = null) {
+        try {
+          if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({ type: 'RA_EVICT_CACHE', trackId });
+          }
+        } catch (_) {}
+      }
 
       function getReadAlongPrefs() {
         try {
@@ -7720,7 +7762,7 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         }
       }
 
-      // Build book-wide sentence index from tokenized words so highlighting & jumping are O(log N)
+      // Build lightweight book-wide sentence index (no duplicated text/word arrays in RAM!)
       function buildBookSentenceIndex() {
         window.epubSentences = [];
         const normTokens = window.epubNormalizedTokens || [];
@@ -7730,16 +7772,15 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         let curBlock = null;
         let curChap = 0;
         let curStart = 0;
-        let curRawWords = [];
-        let curNormWords = [];
+        let curWordCount = 0;
+        let curCharLen = 0;
+        let curCommaCount = 0;
         let curIsHeading = false;
 
         const flushSentence = (endIdx) => {
-          if (endIdx < curStart || !curRawWords.length) return;
+          if (endIdx < curStart || !curWordCount) return;
           const sIdx = window.epubSentences.length;
-          const text = curRawWords.join(' ').replace(/\s+/g, ' ').trim();
-          const commaCount = (text.match(/[,;:\u2014\u2013]/g) || []).length;
-          const weight = Math.max(8, text.length + commaCount * 7 + (curIsHeading ? 18 : 12));
+          const weight = Math.max(8, curCharLen + curCommaCount * 7 + (curIsHeading ? 18 : 12));
           for (let i = curStart; i <= endIdx; i++) {
             const tokEl = normTokens[i] && normTokens[i].el;
             if (tokEl) tokEl.dataset.sentIdx = String(sIdx);
@@ -7749,8 +7790,6 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
             chapterIdx: curChap,
             startTok: curStart,
             endTok: endIdx,
-            text,
-            normWords: curNormWords.slice(),
             weight
           });
         };
@@ -7764,29 +7803,33 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
           if (i > curStart && (blk !== curBlock || chapIdx !== curChap)) {
             flushSentence(i - 1);
             curStart = i;
-            curRawWords = [];
-            curNormWords = [];
+            curWordCount = 0;
+            curCharLen = 0;
+            curCommaCount = 0;
           }
 
-          if (curRawWords.length === 0) {
+          if (curWordCount === 0) {
             curBlock = blk;
             curChap = chapIdx;
             curStart = i;
             curIsHeading = Boolean(blk && /^H[1-6]$/.test(blk.tagName));
           }
 
-          curRawWords.push(t.raw);
-          if (t.norm) curNormWords.push({ norm: t.norm, tokIdx: i });
+          const rawStr = t.raw || '';
+          curWordCount++;
+          curCharLen += rawStr.length + 1;
+          if (/[,;:\u2014\u2013]/.test(rawStr)) curCommaCount++;
 
-          const hitEnd = isSentenceEndToken(t.raw) || curRawWords.length >= 65;
+          const hitEnd = isSentenceEndToken(rawStr) || curWordCount >= 65;
           if (hitEnd) {
             flushSentence(i);
             curStart = i + 1;
-            curRawWords = [];
-            curNormWords = [];
+            curWordCount = 0;
+            curCharLen = 0;
+            curCommaCount = 0;
           }
         }
-        if (curRawWords.length > 0) {
+        if (curWordCount > 0) {
           flushSentence(normTokens.length - 1);
         }
         return window.epubSentences;
@@ -8007,14 +8050,16 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
           return { timings: buildEstimatedSentenceTimings(durationSec, targetSentences), coveragePct: 0 };
         }
 
-        // Flatten target sentences' normalized words
+        // Flatten target sentences' normalized words on-demand from window.epubNormalizedTokens
+        const normTokens = window.epubNormalizedTokens || [];
         const bookWords = [];
         const sentBounds = [];
         targetSentences.forEach((s, localPos) => {
           const startW = bookWords.length;
-          (s.normWords || []).forEach(w => {
-            if (w.norm) bookWords.push({ norm: w.norm, localPos });
-          });
+          for (let tokIdx = s.startTok; tokIdx <= s.endTok; tokIdx++) {
+            const tok = normTokens[tokIdx];
+            if (tok && tok.norm) bookWords.push({ norm: tok.norm, localPos });
+          }
           sentBounds.push({ startW, endW: Math.max(startW, bookWords.length - 1), count: bookWords.length - startW });
         });
 
@@ -8354,10 +8399,12 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         }
       }
 
-      function updateMediaSessionMetadata() {
+      function updateMediaSessionMetadata(force = false) {
         if (!('mediaSession' in navigator) || !raState.activeTrack) return;
-        const book = getCurrentBook();
         const track = raState.activeTrack;
+        if (!force && raState.mediaSessionTrackId === track.id) return;
+        raState.mediaSessionTrackId = track.id;
+        const book = getCurrentBook();
         const chapLabel = track.scope === 'chapter' && book && book.chapters[track.chapterIdx]
           ? book.chapters[track.chapterIdx].title
           : (track.fileName || 'Audiobook');
@@ -8402,18 +8449,39 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         }
       }
 
-      // Lightweight 4 Hz (250ms) sync timer instead of 60 fps rAF — eliminates iOS CPU/GPU & memory pressure
+      // Gentle 1 Hz safety timer (primary sync runs natively on audio 'timeupdate' — minimal CPU & zero memory churn)
       function startReadAlongTickTimer() {
         stopReadAlongTickTimer();
         raState.tickTimer = setInterval(() => {
           if (!raAudio.paused && !raAudio.ended && raState.activeTrack) {
-            updateReadAlongTimeUi();
-            syncHighlightToCurrentAudioTime(true);
             persistActiveReadAlongPosition(false, false);
           } else {
             stopReadAlongTickTimer();
           }
-        }, 250);
+        }, 1000);
+      }
+
+      function releaseReadAlongAudioElement() {
+        stopReadAlongTickTimer();
+        if (raState.durationChangeTimer) {
+          clearTimeout(raState.durationChangeTimer);
+          raState.durationChangeTimer = null;
+        }
+        pauseReadAlongIfPlaying();
+        clearReadAlongHighlight();
+        raState.usingSwStream = false;
+        raState.swStreamFallbackAttempted = false;
+        raState.mediaSessionTrackId = null;
+        if (raState.objectUrl) {
+          try { URL.revokeObjectURL(raState.objectUrl); } catch (_) {}
+          raState.objectUrl = null;
+        }
+        try {
+          if (raAudio.getAttribute('src')) {
+            raAudio.removeAttribute('src');
+            raAudio.load();
+          }
+        } catch (_) {}
       }
 
       async function playReadAlong() {
@@ -8425,7 +8493,7 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
           raAudio.volume = 1.0;
           await raAudio.play();
           updateReadAlongPlayUi();
-          updateMediaSessionMetadata();
+          updateMediaSessionMetadata(false);
           startReadAlongTickTimer();
         } catch (err) {
           showToast('Tap Play again to start audio');
@@ -8457,42 +8525,30 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         persistActiveReadAlongPosition(true, true);
       }
 
-      async function loadAudioTrackRecord(record, autoPlay = false, preloadedBlob = null) {
+      async function probeSwAudioStream(trackId, cacheBust) {
+        if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) return null;
+        const streamUrl = `./__read_along_audio__/${encodeURIComponent(trackId)}?v=${encodeURIComponent(String(cacheBust || 1))}`;
+        try {
+          const probe = await fetch(streamUrl, { method: 'HEAD', cache: 'no-store' });
+          if (probe && probe.ok && probe.headers.get('X-RA-Stream') === '1') {
+            return streamUrl;
+          }
+        } catch (_) {}
+        return null;
+      }
+
+      async function loadAudioTrackRecord(record, autoPlay = false, preloadedBlob = null, forceBlobUrl = false) {
         if (!record) return;
         const myLoadToken = ++raState.activeLoadToken;
         if (raState.alignAbortController) {
           try { raState.alignAbortController.abort(); } catch (_) {}
         }
         if (raDom.alignProgressWrap) raDom.alignProgressWrap.classList.add('hidden');
-        stopReadAlongTickTimer();
+        releaseReadAlongAudioElement();
         raState.isRestoringTrack = true;
         raState.pendingSeekSec = null;
         raState.lastTimeLabel = '';
         raState.lastTotalLabel = '';
-        pauseReadAlongIfPlaying();
-        clearReadAlongHighlight();
-        if (raState.objectUrl) {
-          try { URL.revokeObjectURL(raState.objectUrl); } catch (_) {}
-          raState.objectUrl = null;
-        }
-
-        // Fetch heavy Blob on-demand from audiobooks store (never kept on raState.activeTrack or raState.tracks!)
-        let blob = preloadedBlob || record.audioBlob || await getAudioBlobById(record.id);
-        if (myLoadToken !== raState.activeLoadToken) return;
-        if (!blob) {
-          raState.isRestoringTrack = false;
-          showToast('Audio file missing from storage — please re-upload.');
-          return;
-        }
-
-        // Normalize MIME type for .m4b files via zero-copy slice so Safari/Chrome play cleanly without RAM duplication
-        const lowerName = String(record.fileName || '').toLowerCase();
-        if (!blob.type || blob.type === 'application/octet-stream' || lowerName.endsWith('.m4b')) {
-          const fixedType = lowerName.endsWith('.m4b') || lowerName.endsWith('.m4a')
-            ? 'audio/mp4'
-            : lowerName.endsWith('.wav') ? 'audio/wav' : 'audio/mpeg';
-          blob = blob.slice(0, blob.size, fixedType);
-        }
 
         // Strip any stray audioBlob property so raState.activeTrack stays lightweight JSON only
         const { audioBlob: _dropBlob, ...metaOnly } = record;
@@ -8502,12 +8558,45 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
           : (Number(metaOnly.lastTimeSec) || 0);
         metaOnly.lastTimeSec = savedResumeSec;
 
-        raState.activeTrack = metaOnly;
-        raState.barHiddenByUser = false;
-        raState.objectUrl = URL.createObjectURL(blob);
-        blob = null; // Allow JS reference to be GC'd immediately while <audio> streams via ObjectURL
-        raAudio.src = raState.objectUrl;
-        raAudio.load();
+        // Prefer Service Worker 512 KB HTTP 206 Range streaming (keeps iOS Safari RAM < 5 MB even for 300 MB .m4b files!)
+        let swStreamUrl = null;
+        if (!forceBlobUrl) {
+          swStreamUrl = await probeSwAudioStream(metaOnly.id, metaOnly.updatedAt || Date.now());
+          if (myLoadToken !== raState.activeLoadToken) return;
+        }
+
+        if (swStreamUrl) {
+          raState.activeTrack = metaOnly;
+          raState.barHiddenByUser = false;
+          raState.usingSwStream = true;
+          raState.swStreamFallbackAttempted = false;
+          raAudio.src = swStreamUrl;
+          raAudio.load();
+        } else {
+          // Fallback when SW is not controlling the page (e.g. first visit before reload or local preview)
+          let blob = preloadedBlob || record.audioBlob || await getAudioBlobById(metaOnly.id);
+          if (myLoadToken !== raState.activeLoadToken) return;
+          if (!blob) {
+            raState.isRestoringTrack = false;
+            showToast('Audio file missing from storage — please re-upload.');
+            return;
+          }
+          const lowerName = String(metaOnly.fileName || '').toLowerCase();
+          if (!blob.type || blob.type === 'application/octet-stream' || lowerName.endsWith('.m4b')) {
+            const fixedType = lowerName.endsWith('.m4b') || lowerName.endsWith('.m4a')
+              ? 'audio/mp4'
+              : lowerName.endsWith('.wav') ? 'audio/wav' : 'audio/mpeg';
+            blob = blob.slice(0, blob.size, fixedType);
+          }
+          raState.activeTrack = metaOnly;
+          raState.barHiddenByUser = false;
+          raState.usingSwStream = false;
+          raState.swStreamFallbackAttempted = forceBlobUrl;
+          raState.objectUrl = URL.createObjectURL(blob);
+          blob = null;
+          raAudio.src = raState.objectUrl;
+          raAudio.load();
+        }
 
         const prefs = getReadAlongPrefs();
         const rate = Number((savedLocalPos && savedLocalPos.r) || metaOnly.playbackRate || prefs.lastRate || 1.0);
@@ -8518,20 +8607,22 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         const onMetadataReady = async () => {
           if (myLoadToken !== raState.activeLoadToken) return;
           const dur = Number.isFinite(raAudio.duration) && raAudio.duration > 0 ? raAudio.duration : (metaOnly.durationSec || 0);
-          let needSave = false;
-          if (dur > 0 && Math.abs((metaOnly.durationSec || 0) - dur) > 0.5) {
+          let needMetaSave = false;
+          if (dur > 0 && Math.abs((metaOnly.durationSec || 0) - dur) > 1.0) {
             metaOnly.durationSec = dur;
-            needSave = true;
+            needMetaSave = true;
           }
-          if (!Array.isArray(metaOnly.sentenceTimings) || metaOnly.sentenceTimings.length === 0) {
+          // Recompute estimated sentenceTimings in memory (<3ms) — never bloat IndexedDB with multi-MB estimated arrays
+          if (metaOnly.syncMethod !== 'whisper' || !Array.isArray(metaOnly.sentenceTimings) || metaOnly.sentenceTimings.length === 0) {
             metaOnly.sentenceTimings = buildEstimatedSentenceTimings(dur || 60, targetSentences, metaOnly.anchors || []);
-            metaOnly.syncMethod = metaOnly.syncMethod || 'estimated';
-            needSave = true;
+            if (!metaOnly.syncMethod) {
+              metaOnly.syncMethod = 'estimated';
+              needMetaSave = true;
+            }
           }
-          if (needSave) {
+          if (needMetaSave) {
             await updateAudioTrackMetaInDb(metaOnly.id, {
               durationSec: metaOnly.durationSec,
-              sentenceTimings: metaOnly.sentenceTimings,
               syncMethod: metaOnly.syncMethod
             });
           }
@@ -8571,12 +8662,8 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
           if (raState.alignAbortController) {
             try { raState.alignAbortController.abort(); } catch (_) {}
           }
-          pauseReadAlongIfPlaying();
-          clearReadAlongHighlight();
-          if (raState.objectUrl) {
-            try { URL.revokeObjectURL(raState.objectUrl); } catch (_) {}
-            raState.objectUrl = null;
-          }
+          releaseReadAlongAudioElement();
+          evictSwAudioCache();
           raState.activeTrack = null;
           raState.bookId = bookId;
         }
@@ -8711,7 +8798,7 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
           anchors: track.anchors,
           syncMethod: track.syncMethod,
           syncOffsetSec: 0,
-          sentenceTimings: track.sentenceTimings
+          sentenceTimings: []
         });
         syncHighlightToCurrentAudioTime(false);
         updateReadAlongSyncUi();
@@ -8916,8 +9003,9 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         if (raDom.chapterPickerWrap) raDom.chapterPickerWrap.classList.toggle('hidden', !isChapter);
       }
 
-      function renderReadAlongTracksList() {
+      function renderReadAlongTracksList(force = false) {
         if (!raDom.tracksList) return;
+        if (!force && raDom.modalBackdrop && raDom.modalBackdrop.classList.contains('hidden')) return;
         const book = getCurrentBook();
         const tracks = raState.tracks || [];
         const totalBytes = tracks.reduce((sum, t) => sum + (Number(t.sizeBytes) || 0), 0);
@@ -8970,7 +9058,7 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         }
         populateReadAlongChapterSelect();
         updateReadAlongScopeUi();
-        renderReadAlongTracksList();
+        renderReadAlongTracksList(true);
         updateReadAlongSyncUi();
         if (raDom.modalBackdrop) raDom.modalBackdrop.classList.remove('hidden');
       }
@@ -9044,6 +9132,7 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
               throw cloneErr;
             }
           }
+          evictSwAudioCache(record.id);
           const prefs = getReadAlongPrefs();
           const perBook = prefs.lastTrackByBook || {};
           perBook[book.id] = record.id;
@@ -9077,34 +9166,51 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         updateReadAlongPlayUi();
         persistActiveReadAlongPosition(true, true);
       });
-      raAudio.addEventListener('durationchange', async () => {
+      raAudio.addEventListener('durationchange', () => {
         const track = raState.activeTrack;
         const dur = raAudio.duration;
         if (!track || !Number.isFinite(dur) || dur <= 0) return;
-        if (Math.abs((track.durationSec || 0) - dur) > 1.0) {
-          track.durationSec = dur;
-          if (track.syncMethod === 'estimated') {
-            track.sentenceTimings = buildEstimatedSentenceTimings(dur, getTargetSentencesForTrack(track), track.anchors || []);
-            await updateAudioTrackMetaInDb(track.id, { durationSec: dur, sentenceTimings: track.sentenceTimings });
-          } else {
-            await updateAudioTrackMetaInDb(track.id, { durationSec: dur });
+        if (Math.abs((track.durationSec || 0) - dur) <= 2.0) return;
+        if (raState.durationChangeTimer) clearTimeout(raState.durationChangeTimer);
+        raState.durationChangeTimer = setTimeout(async () => {
+          raState.durationChangeTimer = null;
+          const active = raState.activeTrack;
+          const latestDur = raAudio.duration;
+          if (!active || active.id !== track.id || !Number.isFinite(latestDur) || latestDur <= 0) return;
+          if (Math.abs((active.durationSec || 0) - latestDur) <= 2.0) return;
+          active.durationSec = latestDur;
+          if (active.syncMethod === 'estimated') {
+            active.sentenceTimings = buildEstimatedSentenceTimings(latestDur, getTargetSentencesForTrack(active), active.anchors || []);
           }
+          await updateAudioTrackMetaInDb(active.id, { durationSec: latestDur });
           updateReadAlongTimeUi();
           updateReadAlongSyncUi();
           renderReadAlongTracksList();
-        }
+        }, 1500);
       });
       raAudio.addEventListener('error', () => {
         stopReadAlongTickTimer();
         raState.isRestoringTrack = false;
         updateReadAlongPlayUi();
-        if (raState.activeTrack && raAudio.getAttribute('src')) {
+        const active = raState.activeTrack;
+        if (active && raState.usingSwStream && !raState.swStreamFallbackAttempted) {
+          // Seamless one-time fallback from SW Range stream to Blob URL if browser blocks SW media streaming
+          raState.swStreamFallbackAttempted = true;
+          raState.usingSwStream = false;
+          console.warn('SW audio stream failed, falling back to Blob URL for track:', active.id);
+          loadAudioTrackRecord(active, false, null, true);
+          return;
+        }
+        if (active && raAudio.getAttribute('src')) {
           showToast('Could not play this audio file (unsupported codec or DRM-protected).');
         }
       });
       raAudio.addEventListener('timeupdate', () => {
         updateReadAlongTimeUi();
         syncHighlightToCurrentAudioTime(true);
+        if (!raAudio.paused && !raAudio.ended) {
+          persistActiveReadAlongPosition(false, false);
+        }
       });
       raAudio.addEventListener('seeked', () => {
         updateReadAlongTimeUi();
@@ -9239,7 +9345,7 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
             anchors: [],
             syncOffsetSec: 0,
             syncMethod: 'estimated',
-            sentenceTimings: track.sentenceTimings
+            sentenceTimings: []
           });
           syncHighlightToCurrentAudioTime(false);
           updateReadAlongSyncUi();
@@ -9294,18 +9400,13 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
           if (delBtn) {
             const id = delBtn.dataset.raDelete;
             if (raState.activeTrack && raState.activeTrack.id === id) {
-              pauseReadAlongIfPlaying();
-              clearReadAlongHighlight();
+              releaseReadAlongAudioElement();
               raState.activeTrack = null;
-              if (raState.objectUrl) {
-                try { URL.revokeObjectURL(raState.objectUrl); } catch (_) {}
-                raState.objectUrl = null;
-              }
-              raAudio.removeAttribute('src');
-              raAudio.load();
             }
+            evictSwAudioCache(id);
             await deleteAudioTrackFromDb(id);
             await loadReadAlongForCurrentBook();
+            renderReadAlongTracksList(true);
             showToast('Removed audio track from device');
           }
         });
@@ -9391,10 +9492,12 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
 
       initApp();
 
-      // Register offline app-shell Service Worker (GitHub Pages subpath-safe)
+      // Register offline app-shell & low-RAM audio streaming Service Worker (GitHub Pages subpath-safe)
       if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(() => {});
+          navigator.serviceWorker.register('./sw.js', { scope: './' })
+            .then((reg) => { if (reg && typeof reg.update === 'function') reg.update().catch(() => {}); })
+            .catch(() => {});
         });
       }
     })();
