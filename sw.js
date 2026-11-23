@@ -1,6 +1,7 @@
-/* Steven N. Ebook — Offline App-Shell & Low-RAM Range-Streaming Service Worker (GitHub Pages subpath-safe) */
-const CACHE_VERSION = 'steven-ebook-shell-v10';
-const RUNTIME_CACHE = 'steven-ebook-runtime-v10';
+/* Steven N. Ebook — Offline App-Shell, Low-RAM Range-Streaming & Sharded Dictionary Service Worker (GitHub Pages subpath-safe) */
+const CACHE_VERSION = 'steven-ebook-shell-v11';
+const RUNTIME_CACHE = 'steven-ebook-runtime-v11';
+const DICT_CACHE = 'steven-ebook-dict-v1';
 
 const RA_STREAM_MARKER = '/__read_along_audio__/';
 const RA_DB_NAME = 'lumina_epub_db';
@@ -243,7 +244,7 @@ self.addEventListener('activate', (event) => {
     caches.keys()
       .then((keys) => Promise.all(
         keys
-          .filter((k) => k !== CACHE_VERSION && k !== RUNTIME_CACHE)
+          .filter((k) => k !== CACHE_VERSION && k !== RUNTIME_CACHE && k !== DICT_CACHE)
           .map((k) => caches.delete(k))
       ))
       .then(() => self.clients.claim())
@@ -279,6 +280,24 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (req.method !== 'GET') return;
+
+  // Built-in sharded offline dictionary (.json.gz & manifest.json): Cache-First in persistent DICT_CACHE
+  if (isSameOrigin && url.pathname.includes('/dict/')) {
+    event.respondWith(
+      caches.open(DICT_CACHE).then((cache) =>
+        cache.match(req).then((cached) => {
+          if (cached) return cached;
+          return fetch(req).then((res) => {
+            if (res && res.ok) {
+              cache.put(req, res.clone()).catch(() => {});
+            }
+            return res;
+          });
+        })
+      )
+    );
+    return;
+  }
 
   // Same-origin navigation / HTML: Network-first with offline cache fallback
   if (isSameOrigin && (req.mode === 'navigate' || url.pathname.endsWith('/') || url.pathname.endsWith('/index.html'))) {

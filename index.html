@@ -994,6 +994,42 @@
           </div>
         </div>
 
+        <!-- Offline Dictionary (Built-in 267k EN-VI + Custom StarDict/JSON Uploader) -->
+        <div class="p-3 rounded-xl border border-themed space-y-2 bg-amber-600/5">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs font-semibold">Offline Dictionary (EN&ndash;VI + IPA)</span>
+            <span id="offline-dict-status-badge" class="text-[11px] px-2 py-0.5 rounded-full bg-amber-600/15 tone-amber font-semibold">267k Built-in</span>
+          </div>
+          <p id="offline-dict-summary" class="text-[11px] muted-text leading-snug">
+            Built-in <strong>137k EN&ndash;VI + IPA</strong> dictionary (267k word forms) automatically grounds Local Qwen2.5 offline. Cache all 27 letter packs for offline reading, or import your own StarDict (<code>.zip</code> / <code>.idx</code> + <code>.dict.dz</code>) or JSON dictionary.
+          </p>
+          <div class="flex flex-wrap items-center gap-1.5">
+            <button id="btn-cache-offline-dict" type="button" class="px-2.5 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700 whitespace-nowrap">
+              Cache All Offline (~9 MB)
+            </button>
+            <label for="offline-dict-file-input" class="cursor-pointer px-2.5 py-1.5 rounded-lg border border-themed hover-surface text-xs font-semibold whitespace-nowrap">
+              Import StarDict / JSON
+            </label>
+            <input id="offline-dict-file-input" type="file" multiple class="hidden" />
+            <button id="btn-clear-custom-dict" type="button" class="hidden px-2.5 py-1.5 rounded-lg border border-red-600/30 text-red-500 hover:bg-red-600/10 text-xs font-semibold whitespace-nowrap">
+              Clear Custom
+            </button>
+          </div>
+          <div id="offline-dict-progress-wrap" class="hidden space-y-1">
+            <div class="w-full h-1.5 rounded-full subtle-surface overflow-hidden">
+              <div id="offline-dict-progress-bar" class="h-full bg-amber-600 transition-all" style="width: 0%"></div>
+            </div>
+            <div id="offline-dict-progress-text" class="text-[11px] muted-text leading-snug">Preparing offline dictionary...</div>
+          </div>
+          <div class="flex items-center gap-1.5 pt-1 border-t border-themed">
+            <input id="offline-dict-test-input" type="text" placeholder="Test offline lookup (e.g. resilient, ran, subtle)..." class="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-themed bg-transparent text-xs focus:outline-none focus:ring-2 focus:ring-amber-600" />
+            <button id="btn-test-offline-dict" type="button" class="px-2.5 py-1.5 rounded-lg border border-themed hover-surface text-xs font-semibold shrink-0">
+              Lookup
+            </button>
+          </div>
+          <div id="offline-dict-test-result" class="hidden p-2 rounded-lg border border-themed subtle-surface text-[11px] leading-snug space-y-0.5"></div>
+        </div>
+
         <!-- Cloud AI Speech API Option (ElevenLabs, Groq, OpenAI, Kokoro) -->
         <div class="p-3 rounded-xl border border-themed space-y-2 bg-sky-600/5">
           <div class="flex items-center justify-between gap-2">
@@ -1127,7 +1163,7 @@
         <div>
           <div class="flex items-center gap-1.5">
             <h3 class="text-sm font-bold">Read Along Audiobook</h3>
-            <span class="px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-600/15 tone-emerald border border-emerald-600/25">v10</span>
+            <span class="px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-600/15 tone-emerald border border-emerald-600/25">v11</span>
           </div>
           <p id="ra-modal-book-label" class="text-[11px] muted-text truncate max-w-[290px]">Attach MP3, M4A, M4B, or WAV &amp; sync to text</p>
         </div>
@@ -1425,7 +1461,8 @@
       const DB_STORE = 'books';
       const AUDIO_DB_STORE = 'audiobooks';
       const AUDIO_META_STORE = 'audiobook_meta';
-      const DB_VERSION = 3;
+      const OFFLINE_DICT_STORE = 'offline_dict';
+      const DB_VERSION = 4;
       let cachedBookDb = null;
       let isRestoringProgress = false;
 
@@ -1454,6 +1491,9 @@
               const metaStore = db.createObjectStore(AUDIO_META_STORE, { keyPath: 'id' });
               metaStore.createIndex('bookId', 'bookId', { unique: false });
             }
+            if (!db.objectStoreNames.contains(OFFLINE_DICT_STORE)) {
+              db.createObjectStore(OFFLINE_DICT_STORE, { keyPath: 'k' });
+            }
           };
           req.onblocked = () => {
             console.warn('IndexedDB upgrade waiting for another tab to close.');
@@ -1480,6 +1520,68 @@
             }
           };
         });
+      }
+
+      const CUSTOM_DICT_META_KEY = 'lumina_custom_dict_meta';
+      function getCustomOfflineDictMeta() {
+        try {
+          const raw = localStorage.getItem(CUSTOM_DICT_META_KEY);
+          return raw ? JSON.parse(raw) : null;
+        } catch (_) {
+          return null;
+        }
+      }
+      function setCustomOfflineDictMeta(meta) {
+        try {
+          if (!meta) localStorage.removeItem(CUSTOM_DICT_META_KEY);
+          else localStorage.setItem(CUSTOM_DICT_META_KEY, JSON.stringify(meta));
+        } catch (_) {}
+      }
+
+      async function getCustomOfflineDictEntryFromDb(key) {
+        if (!key) return null;
+        try {
+          const db = await openBookDb();
+          if (!db.objectStoreNames.contains(OFFLINE_DICT_STORE)) return null;
+          return await new Promise((resolve) => {
+            const tx = db.transaction(OFFLINE_DICT_STORE, 'readonly');
+            const req = tx.objectStore(OFFLINE_DICT_STORE).get(key);
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => resolve(null);
+          });
+        } catch (_) {
+          return null;
+        }
+      }
+
+      async function putCustomOfflineDictBatchToDb(records) {
+        if (!records || !records.length) return;
+        const db = await openBookDb();
+        if (!db.objectStoreNames.contains(OFFLINE_DICT_STORE)) return;
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction(OFFLINE_DICT_STORE, 'readwrite');
+          const store = tx.objectStore(OFFLINE_DICT_STORE);
+          for (let i = 0; i < records.length; i++) {
+            store.put(records[i]);
+          }
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+      }
+
+      async function clearCustomOfflineDictDb() {
+        try {
+          const db = await openBookDb();
+          if (db.objectStoreNames.contains(OFFLINE_DICT_STORE)) {
+            await new Promise((resolve, reject) => {
+              const tx = db.transaction(OFFLINE_DICT_STORE, 'readwrite');
+              tx.objectStore(OFFLINE_DICT_STORE).clear();
+              tx.oncomplete = () => resolve();
+              tx.onerror = () => reject(tx.error);
+            });
+          }
+        } catch (_) {}
+        setCustomOfflineDictMeta(null);
       }
 
       async function saveImportedBookToDb(book) {
@@ -3355,6 +3457,629 @@
         } catch (_) {}
       }
 
+      // ==========================================
+      // 10a-2. Built-in 267k Sharded Offline Dictionary + StarDict / JSON Importer (IndexedDB)
+      // ==========================================
+      const OFFLINE_DICT_SHARDS = [
+        'a','b','c','d','e','f','g','h','i','j','k','l','m',
+        'n','o','p','q','r','s','t','u','v','w','x','y','z','other'
+      ];
+      const SHARD_RAM_LRU_MAX = 4; // Cap at 4 letter shards (~2 MB max JS heap — iOS safe!)
+      const shardedDictCache = new Map();
+      const shardedDictInFlight = new Map();
+
+      function getOfflineDictShardKey(word) {
+        const ch = (word || '').trim().toLowerCase().charAt(0);
+        return (ch >= 'a' && ch <= 'z') ? ch : 'other';
+      }
+
+      async function decompressGzipBytes(arrayBuffer) {
+        if (typeof DecompressionStream === 'undefined') {
+          throw new Error('This browser does not support native gzip DecompressionStream.');
+        }
+        const ds = new DecompressionStream('gzip');
+        const stream = new Blob([arrayBuffer]).stream().pipeThrough(ds);
+        return await new Response(stream).arrayBuffer();
+      }
+
+      async function loadOfflineDictShard(shardKey) {
+        if (!shardKey) return null;
+        if (shardedDictCache.has(shardKey)) {
+          const hit = shardedDictCache.get(shardKey);
+          // Refresh LRU order
+          shardedDictCache.delete(shardKey);
+          shardedDictCache.set(shardKey, hit);
+          return hit;
+        }
+        if (shardedDictInFlight.has(shardKey)) {
+          return shardedDictInFlight.get(shardKey);
+        }
+        const loadPromise = (async () => {
+          try {
+            const url = `./dict/${shardKey}.json.gz`;
+            const res = await fetch(url);
+            if (!res || !res.ok) return null;
+            const buf = await res.arrayBuffer();
+            const u8 = new Uint8Array(buf);
+            let jsonText = '';
+            // Detect gzip magic header (0x1f 0x8b); fallback to plain UTF-8 JSON if proxy already decoded it
+            if (u8.length >= 2 && u8[0] === 0x1f && u8[1] === 0x8b) {
+              const rawBuf = await decompressGzipBytes(buf);
+              jsonText = new TextDecoder('utf-8').decode(rawBuf);
+            } else {
+              jsonText = new TextDecoder('utf-8').decode(buf);
+            }
+            const parsed = JSON.parse(jsonText);
+            if (shardedDictCache.size >= SHARD_RAM_LRU_MAX) {
+              const oldestKey = shardedDictCache.keys().next().value;
+              shardedDictCache.delete(oldestKey);
+            }
+            shardedDictCache.set(shardKey, parsed);
+            return parsed;
+          } catch (err) {
+            console.warn(`Offline dict shard "${shardKey}" unavailable:`, err);
+            return null;
+          } finally {
+            shardedDictInFlight.delete(shardKey);
+          }
+        })();
+        shardedDictInFlight.set(shardKey, loadPromise);
+        return loadPromise;
+      }
+
+      function normalizeOfflineLookupKey(raw) {
+        return String(raw || '')
+          .replace(/[\u2018\u2019]/g, "'")
+          .replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .toLowerCase();
+      }
+
+      function buildOfflineStemCandidates(word) {
+        const out = [];
+        const add = (w) => { if (w && w.length >= 2 && w !== word && !out.includes(w)) out.push(w); };
+        const w = normalizeOfflineLookupKey(word);
+        if (!w || w.includes(' ')) return out;
+        if (w.endsWith("'s") || w.endsWith("’s")) add(w.slice(0, -2));
+        if (w.endsWith('ies') && w.length > 4) add(w.slice(0, -3) + 'y');
+        if (w.endsWith('ied') && w.length > 4) add(w.slice(0, -3) + 'y');
+        if (w.endsWith('ves') && w.length > 4) { add(w.slice(0, -3) + 'f'); add(w.slice(0, -3) + 'fe'); }
+        if (w.endsWith('ing') && w.length > 5) {
+          const base = w.slice(0, -3);
+          add(base);
+          add(base + 'e');
+          if (base.length > 2 && base[base.length - 1] === base[base.length - 2]) add(base.slice(0, -1));
+        }
+        if (w.endsWith('ed') && w.length > 4) {
+          const base = w.slice(0, -2);
+          add(base);
+          add(base + 'e');
+          if (base.length > 2 && base[base.length - 1] === base[base.length - 2]) add(base.slice(0, -1));
+        }
+        if (w.endsWith('es') && w.length > 3) add(w.slice(0, -2));
+        if (w.endsWith('s') && w.length > 3 && !w.endsWith('ss')) add(w.slice(0, -1));
+        if (w.endsWith('ly') && w.length > 4) {
+          const base = w.slice(0, -2);
+          add(base);
+          if (base.endsWith('i')) add(base.slice(0, -1) + 'y');
+          add(base + 'e');
+          add(base + 'le');
+        }
+        if (w.endsWith('er') && w.length > 4) {
+          const base = w.slice(0, -2);
+          add(base);
+          add(base + 'e');
+          if (base.endsWith('i')) add(base.slice(0, -1) + 'y');
+          if (base.length > 2 && base[base.length - 1] === base[base.length - 2]) add(base.slice(0, -1));
+        }
+        if (w.endsWith('est') && w.length > 5) {
+          const base = w.slice(0, -3);
+          add(base);
+          add(base + 'e');
+          if (base.endsWith('i')) add(base.slice(0, -1) + 'y');
+          if (base.length > 2 && base[base.length - 1] === base[base.length - 2]) add(base.slice(0, -1));
+        }
+        if (w.endsWith('ness') && w.length > 6) {
+          const base = w.slice(0, -4);
+          add(base);
+          if (base.endsWith('i')) add(base.slice(0, -1) + 'y');
+        }
+        if (w.endsWith('ment') && w.length > 6) add(w.slice(0, -4));
+        return out;
+      }
+
+      function formatShardArrayEntry(word, arr, matchedFrom, sourceLabel) {
+        if (!Array.isArray(arr) || !arr.length) return null;
+        const ipa = arr[0] || '';
+        const pos = arr[1] || '';
+        const vi = arr[2] || '';
+        const enDef = arr[3] || '';
+        const synsRaw = arr[4] || '';
+        const example = arr[5] || '';
+        const synonyms = synsRaw ? synsRaw.split(/\s*,\s*/).filter(Boolean) : [];
+        return {
+          word: matchedFrom || word,
+          lemma: word,
+          phonetic: ipa,
+          pos: pos || 'word',
+          vi,
+          viDef: vi ? (pos ? `(${pos}) ${vi}` : vi) : '',
+          def: enDef || (vi ? `Vietnamese meaning: ${vi}` : ''),
+          enDef,
+          collocations: synonyms,
+          example,
+          tip: '',
+          source: sourceLabel || 'Built-in Offline Dictionary'
+        };
+      }
+
+      async function lookupCustomIndexedDbDict(key) {
+        const meta = getCustomOfflineDictMeta();
+        if (!meta || !meta.count) return null;
+        let rec = await getCustomOfflineDictEntryFromDb(key);
+        if (rec && rec.r) {
+          const target = await getCustomOfflineDictEntryFromDb(rec.r);
+          if (target) rec = { ...target, _lemma: rec.r };
+        }
+        if (!rec || (!rec.vi && !rec.en && !rec.def)) return null;
+        const lemma = rec._lemma || rec.k || key;
+        const vi = rec.vi || '';
+        const enDef = rec.en || rec.def || '';
+        const pos = rec.pos || '';
+        return {
+          word: key,
+          lemma,
+          phonetic: rec.ipa || rec.p || '',
+          pos: pos || 'word',
+          vi,
+          viDef: vi ? (pos ? `(${pos}) ${vi}` : vi) : '',
+          def: enDef || (vi ? `Vietnamese meaning: ${vi}` : ''),
+          enDef,
+          collocations: Array.isArray(rec.syn) ? rec.syn : [],
+          example: rec.ex || '',
+          tip: '',
+          source: `Custom Dictionary (${meta.name || 'Imported'})`
+        };
+      }
+
+      async function lookupShardedBuiltInDict(key) {
+        const sk = getOfflineDictShardKey(key);
+        const shard = await loadOfflineDictShard(sk);
+        if (!shard) return null;
+        if (shard.w && shard.w[key]) {
+          return formatShardArrayEntry(key, shard.w[key], key, 'Built-in Offline Dict (267k)');
+        }
+        if (shard.s && shard.s[key]) {
+          const target = shard.s[key];
+          const tsk = getOfflineDictShardKey(target);
+          const tShard = tsk === sk ? shard : await loadOfflineDictShard(tsk);
+          if (tShard && tShard.w && tShard.w[target]) {
+            return formatShardArrayEntry(target, tShard.w[target], key, 'Built-in Offline Dict (267k)');
+          }
+        }
+        return null;
+      }
+
+      // Unified Offline Dictionary Lookup: 1) User Imported IndexedDB -> 2) Curated Core -> 3) Built-in 267k Shards (with inflection + stemming)
+      async function lookupOfflineDictionary(rawPhrase) {
+        const key = normalizeOfflineLookupKey(rawPhrase);
+        if (!key) return null;
+
+        const candidates = [key];
+        const firstTok = key.includes(' ') ? key.split(' ')[0] : '';
+        for (const st of buildOfflineStemCandidates(key)) candidates.push(st);
+        if (firstTok && firstTok !== key) {
+          candidates.push(firstTok);
+          for (const st of buildOfflineStemCandidates(firstTok)) candidates.push(st);
+        }
+
+        // 1. User-Imported Custom Dictionary (IndexedDB — highest priority!)
+        const customMeta = getCustomOfflineDictMeta();
+        if (customMeta && customMeta.count > 0) {
+          for (const c of candidates) {
+            const hit = await lookupCustomIndexedDbDict(c);
+            if (hit) return { ...hit, word: key };
+          }
+        }
+
+        // 2. Curated hand-crafted core + runtime cache
+        const coreHit = customOfflineDict[key] || OFFLINE_EN_VI_CORE[key] || OFFLINE_PHRASES_EN_VI[key];
+        if (coreHit) {
+          return {
+            word: key,
+            lemma: coreHit.lemma || key,
+            phonetic: coreHit.phonetic || '',
+            pos: coreHit.pos || 'word',
+            vi: coreHit.vi || '',
+            viDef: coreHit.viDef || coreHit.vi || '',
+            def: coreHit.def || '',
+            enDef: coreHit.def || '',
+            collocations: coreHit.collocations || [],
+            example: coreHit.example || '',
+            tip: coreHit.tip || '',
+            audioUrl: coreHit.audioUrl || '',
+            source: 'Built-in Core Dictionary'
+          };
+        }
+
+        // 3. Built-in 267k Sharded Offline Dictionary (exact -> 129k inflection map -> morphological stems)
+        for (const c of candidates) {
+          const hit = await lookupShardedBuiltInDict(c);
+          if (hit) return { ...hit, word: key };
+        }
+        return null;
+      }
+
+      // Cache all 27 built-in dictionary shards into Service Worker persistent cache for 100% offline reading
+      async function cacheAllBuiltInOfflineDictShards(onProgress) {
+        let cached = 0;
+        const total = OFFLINE_DICT_SHARDS.length;
+        let dictCache = null;
+        try {
+          if ('caches' in window) dictCache = await caches.open('steven-ebook-dict-v1');
+        } catch (_) {}
+
+        try {
+          const manRes = await fetch('./dict/manifest.json');
+          if (manRes && manRes.ok && dictCache) {
+            await dictCache.put('./dict/manifest.json', manRes.clone()).catch(() => {});
+          }
+        } catch (_) {}
+
+        for (let i = 0; i < total; i++) {
+          const sk = OFFLINE_DICT_SHARDS[i];
+          const url = `./dict/${sk}.json.gz`;
+          if (typeof onProgress === 'function') {
+            onProgress(Math.round(((i) / total) * 100), `Caching letter "${sk.toUpperCase()}" (${i + 1}/${total})...`);
+          }
+          let already = null;
+          if (dictCache) {
+            try { already = await dictCache.match(url); } catch (_) {}
+          }
+          if (!already) {
+            const res = await fetch(url);
+            if (res && res.ok) {
+              if (dictCache) await dictCache.put(url, res.clone()).catch(() => {});
+              cached++;
+            }
+          } else {
+            cached++;
+          }
+        }
+        if (typeof onProgress === 'function') {
+          onProgress(100, `All ${cached}/${total} dictionary packs cached offline (~9 MB)!`);
+        }
+        return cached;
+      }
+
+      // Parse HTML or plain-text StarDict entry into clean structured fields
+      function parseStarDictBodyToEntry(word, rawBody) {
+        let text = String(rawBody || '').trim();
+        if (!text) return null;
+        let ipa = '';
+        let pos = '';
+        const ipaHtml = text.match(/<span[^>]*class=["'][^"']*ipa[^"']*["'][^>]*>([^<]+)<\/span>/i);
+        if (ipaHtml) ipa = ipaHtml[1].trim();
+        const posHtmlMatches = [...text.matchAll(/<span[^>]*class=["'][^"']*pos[^"']*["'][^>]*>([^<]+)<\/span>/gi)].map(m => m[1].trim());
+        if (posHtmlMatches.length) pos = [...new Set(posHtmlMatches)].slice(0, 3).join(', ');
+
+        // Strip HTML tags cleanly while preserving block separators
+        let plain = text
+          .replace(/<br\s*\/?>/gi, '\n')
+          .replace(/<\/(div|p|li|tr)>/gi, '\n')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&nbsp;/gi, ' ')
+          .replace(/&amp;/gi, '&')
+          .replace(/&lt;/gi, '<')
+          .replace(/&gt;/gi, '>')
+          .replace(/&quot;/gi, '"')
+          .replace(/&#39;/gi, "'");
+
+        const lines = plain.split(/\n+/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+        const cleanedLines = [];
+        for (const line of lines) {
+          if (!ipa) {
+            const mIpa = line.match(/\/([^/\n]{1,42})\//);
+            if (mIpa && /[æɑɔəɛɪʊʌθðŋʃʒˈˌːa-z]/i.test(mIpa[1])) {
+              ipa = `/${mIpa[1]}/`;
+            }
+          }
+          if (line.startsWith('@') && line.toLowerCase().includes(word.toLowerCase())) continue;
+          if (line.toLowerCase() === word.toLowerCase() || (ipa && line === `${word} ${ipa}`)) continue;
+          if (!pos && /^\*\s+/.test(line)) {
+            pos = line.replace(/^\*\s+/, '').slice(0, 32);
+            continue;
+          }
+          cleanedLines.push(line.replace(/^[-•*]\s*/, ''));
+        }
+        const joined = cleanedLines.join(' ; ').replace(/\s+/g, ' ').trim();
+        if (!joined) return null;
+        const snippet = joined.length > 260 ? joined.slice(0, 257).trim() + '...' : joined;
+        const hasVi = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(snippet);
+        return {
+          k: word,
+          ipa,
+          pos,
+          vi: hasVi ? snippet : '',
+          en: hasVi ? '' : snippet
+        };
+      }
+
+      // Import StarDict (.zip or .idx + .dict/.dict.dz + optional .syn/.ifo) OR JSON / .json.gz into IndexedDB
+      async function importOfflineDictionaryFiles(fileList, onProgress) {
+        const files = Array.from(fileList || []);
+        if (!files.length) throw new Error('No files selected');
+
+        const report = (pct, msg) => {
+          if (typeof onProgress === 'function') onProgress(pct, msg);
+        };
+
+        // Case 1: JSON or .json.gz single-file import
+        const jsonFile = files.find(f => /\.json(\.gz)?$/i.test(f.name));
+        if (jsonFile && files.length === 1) {
+          report(10, `Reading ${jsonFile.name}...`);
+          const buf = await jsonFile.arrayBuffer();
+          const u8 = new Uint8Array(buf);
+          let text = '';
+          if (u8.length >= 2 && u8[0] === 0x1f && u8[1] === 0x8b) {
+            const raw = await decompressGzipBytes(buf);
+            text = new TextDecoder('utf-8').decode(raw);
+          } else {
+            text = new TextDecoder('utf-8').decode(buf);
+          }
+          report(28, 'Parsing JSON dictionary...');
+          const parsed = JSON.parse(text);
+          const batch = [];
+          let totalSaved = 0;
+
+          const flushBatch = async () => {
+            if (!batch.length) return;
+            await putCustomOfflineDictBatchToDb(batch.splice(0, batch.length));
+            await new Promise(r => setTimeout(r, 0));
+          };
+
+          await clearCustomOfflineDictDb();
+
+          if (parsed && parsed.w && typeof parsed.w === 'object') {
+            const wKeys = Object.keys(parsed.w);
+            const sKeys = parsed.s && typeof parsed.s === 'object' ? Object.keys(parsed.s) : [];
+            const total = wKeys.length + sKeys.length;
+            for (let i = 0; i < wKeys.length; i++) {
+              const k = normalizeOfflineLookupKey(wKeys[i]);
+              const v = parsed.w[wKeys[i]];
+              if (!k || !Array.isArray(v)) continue;
+              batch.push({ k, ipa: v[0] || '', pos: v[1] || '', vi: v[2] || '', en: v[3] || '', ex: v[5] || '' });
+              totalSaved++;
+              if (batch.length >= 2500) {
+                await flushBatch();
+                report(30 + Math.round((totalSaved / Math.max(1, total)) * 65), `Saving ${totalSaved.toLocaleString()} entries...`);
+              }
+            }
+            for (let i = 0; i < sKeys.length; i++) {
+              const k = normalizeOfflineLookupKey(sKeys[i]);
+              const target = normalizeOfflineLookupKey(parsed.s[sKeys[i]]);
+              if (!k || !target || k === target) continue;
+              batch.push({ k, r: target });
+              totalSaved++;
+              if (batch.length >= 2500) {
+                await flushBatch();
+                report(30 + Math.round((totalSaved / Math.max(1, total)) * 65), `Saving ${totalSaved.toLocaleString()} entries...`);
+              }
+            }
+          } else if (Array.isArray(parsed)) {
+            for (let i = 0; i < parsed.length; i++) {
+              const item = parsed[i];
+              const k = normalizeOfflineLookupKey(item && (item.word || item.k || item.term));
+              if (!k) continue;
+              batch.push({
+                k,
+                ipa: item.ipa || item.phonetic || '',
+                pos: item.pos || '',
+                vi: item.vi || item.vietnamese || item.meaning || '',
+                en: item.en || item.def || item.definition || '',
+                ex: item.example || item.ex || ''
+              });
+              totalSaved++;
+              if (batch.length >= 2500) {
+                await flushBatch();
+                report(30 + Math.round((i / Math.max(1, parsed.length)) * 65), `Saving ${totalSaved.toLocaleString()} entries...`);
+              }
+            }
+          } else if (parsed && typeof parsed === 'object') {
+            const keys = Object.keys(parsed);
+            for (let i = 0; i < keys.length; i++) {
+              const k = normalizeOfflineLookupKey(keys[i]);
+              const v = parsed[keys[i]];
+              if (!k || !v) continue;
+              if (typeof v === 'string') {
+                const hasVi = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(v);
+                batch.push({ k, vi: hasVi ? v : '', en: hasVi ? '' : v });
+              } else if (typeof v === 'object') {
+                batch.push({
+                  k,
+                  ipa: v.ipa || v.phonetic || v.p || '',
+                  pos: v.pos || '',
+                  vi: v.vi || v.viDef || v.vietnamese || '',
+                  en: v.en || v.def || v.definition || '',
+                  ex: v.example || v.ex || ''
+                });
+              }
+              totalSaved++;
+              if (batch.length >= 2500) {
+                await flushBatch();
+                report(30 + Math.round((i / Math.max(1, keys.length)) * 65), `Saving ${totalSaved.toLocaleString()} entries...`);
+              }
+            }
+          }
+          await flushBatch();
+          const meta = { name: jsonFile.name.replace(/\.json(\.gz)?$/i, ''), count: totalSaved, sourceType: 'json', importedAt: Date.now() };
+          setCustomOfflineDictMeta(meta);
+          report(100, `Imported ${totalSaved.toLocaleString()} entries from ${jsonFile.name}!`);
+          return meta;
+        }
+
+        // Case 2: StarDict (.zip OR direct .ifo/.idx/.dict/.dict.dz/.syn files)
+        let ifoText = '';
+        let idxBuf = null;
+        let dictBuf = null;
+        let dictIsDz = false;
+        let synBuf = null;
+        let fallbackName = 'StarDict';
+
+        const zipFile = files.find(f => /\.zip$/i.test(f.name));
+        if (zipFile) {
+          if (typeof window.JSZip === 'undefined') {
+            throw new Error('JSZip is required to unpack StarDict .zip files.');
+          }
+          fallbackName = zipFile.name.replace(/\.zip$/i, '');
+          report(8, `Unpacking ${zipFile.name}...`);
+          const zip = await window.JSZip.loadAsync(await zipFile.arrayBuffer());
+          const entries = Object.values(zip.files).filter(e => !e.dir);
+          const ifoEntry = entries.find(e => /\.ifo$/i.test(e.name));
+          const idxEntry = entries.find(e => /\.idx(\.gz)?$/i.test(e.name));
+          const dictDzEntry = entries.find(e => /\.dict\.dz$/i.test(e.name));
+          const dictRawEntry = entries.find(e => /\.dict$/i.test(e.name));
+          const synEntry = entries.find(e => /\.syn$/i.test(e.name));
+          if (ifoEntry) ifoText = await ifoEntry.async('text');
+          if (idxEntry) {
+            idxBuf = await idxEntry.async('arraybuffer');
+            if (/\.gz$/i.test(idxEntry.name)) idxBuf = await decompressGzipBytes(idxBuf);
+          }
+          if (dictDzEntry) {
+            dictBuf = await dictDzEntry.async('arraybuffer');
+            dictIsDz = true;
+          } else if (dictRawEntry) {
+            dictBuf = await dictRawEntry.async('arraybuffer');
+          }
+          if (synEntry) synBuf = await synEntry.async('arraybuffer');
+        } else {
+          for (const f of files) {
+            const n = f.name.toLowerCase();
+            if (n.endsWith('.ifo')) {
+              ifoText = await f.text();
+              fallbackName = f.name.replace(/\.ifo$/i, '');
+            } else if (n.endsWith('.idx') || n.endsWith('.idx.gz')) {
+              let b = await f.arrayBuffer();
+              if (n.endsWith('.gz')) b = await decompressGzipBytes(b);
+              idxBuf = b;
+              if (fallbackName === 'StarDict') fallbackName = f.name.replace(/\.idx(\.gz)?$/i, '');
+            } else if (n.endsWith('.dict.dz')) {
+              dictBuf = await f.arrayBuffer();
+              dictIsDz = true;
+            } else if (n.endsWith('.dict')) {
+              dictBuf = await f.arrayBuffer();
+            } else if (n.endsWith('.syn')) {
+              synBuf = await f.arrayBuffer();
+            }
+          }
+        }
+
+        if (!idxBuf || !dictBuf) {
+          throw new Error('Select a StarDict .zip, OR select both .idx and .dict/.dict.dz files together, OR a .json/.json.gz file.');
+        }
+
+        const bookNameMatch = ifoText.match(/^bookname=(.+)$/mi);
+        const dictName = bookNameMatch ? bookNameMatch[1].trim() : fallbackName;
+        const is64BitIdx = /idxoffsetbits\s*=\s*64/i.test(ifoText);
+
+        report(18, dictIsDz ? `Decompressing ${dictName} (.dict.dz)...` : `Reading ${dictName}...`);
+        const rawDictBytes = dictIsDz ? new Uint8Array(await decompressGzipBytes(dictBuf)) : new Uint8Array(dictBuf);
+        dictBuf = null; // Free compressed buffer immediately
+
+        const idxBytes = new Uint8Array(idxBuf);
+        const idxView = new DataView(idxBuf);
+        const decoder = new TextDecoder('utf-8');
+
+        await clearCustomOfflineDictDb();
+        report(25, `Indexing ${dictName} into IndexedDB...`);
+
+        const headwords = [];
+        const batch = [];
+        let savedCount = 0;
+        let offset = 0;
+        const idxLen = idxBytes.length;
+
+        const flushBatch = async () => {
+          if (!batch.length) return;
+          await putCustomOfflineDictBatchToDb(batch.splice(0, batch.length));
+          await new Promise(r => setTimeout(r, 0));
+        };
+
+        while (offset < idxLen) {
+          let zeroPos = offset;
+          while (zeroPos < idxLen && idxBytes[zeroPos] !== 0) zeroPos++;
+          if (zeroPos >= idxLen) break;
+          const rawWord = decoder.decode(idxBytes.subarray(offset, zeroPos)).trim();
+          let dataOff = 0;
+          let dataLen = 0;
+          if (is64BitIdx) {
+            if (zeroPos + 13 > idxLen) break;
+            const hi = idxView.getUint32(zeroPos + 1, false);
+            const lo = idxView.getUint32(zeroPos + 5, false);
+            dataOff = hi * 4294967296 + lo;
+            dataLen = idxView.getUint32(zeroPos + 9, false);
+            offset = zeroPos + 13;
+          } else {
+            if (zeroPos + 9 > idxLen) break;
+            dataOff = idxView.getUint32(zeroPos + 1, false);
+            dataLen = idxView.getUint32(zeroPos + 5, false);
+            offset = zeroPos + 9;
+          }
+
+          const key = normalizeOfflineLookupKey(rawWord);
+          headwords.push(key);
+          if (!key || dataLen <= 0 || dataOff + dataLen > rawDictBytes.length) continue;
+
+          const bodyStr = decoder.decode(rawDictBytes.subarray(dataOff, dataOff + dataLen));
+          const entry = parseStarDictBodyToEntry(key, bodyStr);
+          if (entry) {
+            batch.push(entry);
+            savedCount++;
+            if (batch.length >= 2500) {
+              await flushBatch();
+              const pct = 25 + Math.round((offset / idxLen) * (synBuf ? 55 : 72));
+              report(pct, `Imported ${savedCount.toLocaleString()} headwords...`);
+            }
+          }
+        }
+        await flushBatch();
+
+        // Optional StarDict .syn (inflections / variant forms)
+        if (synBuf) {
+          const synBytes = new Uint8Array(synBuf);
+          const synView = new DataView(synBuf);
+          let sOff = 0;
+          const sLen = synBytes.length;
+          let synCount = 0;
+          while (sOff < sLen) {
+            let zPos = sOff;
+            while (zPos < sLen && synBytes[zPos] !== 0) zPos++;
+            if (zPos + 5 > sLen) break;
+            const synKey = normalizeOfflineLookupKey(decoder.decode(synBytes.subarray(sOff, zPos)));
+            const origIdx = synView.getUint32(zPos + 1, false);
+            sOff = zPos + 5;
+            if (!synKey || origIdx >= headwords.length) continue;
+            const target = headwords[origIdx];
+            if (!target || synKey === target) continue;
+            batch.push({ k: synKey, r: target });
+            synCount++;
+            savedCount++;
+            if (batch.length >= 2500) {
+              await flushBatch();
+              const pct = 80 + Math.round((sOff / sLen) * 18);
+              report(pct, `Imported ${synCount.toLocaleString()} word inflections...`);
+            }
+          }
+          await flushBatch();
+        }
+
+        const meta = { name: dictName, count: savedCount, sourceType: 'stardict', importedAt: Date.now() };
+        setCustomOfflineDictMeta(meta);
+        report(100, `Imported ${savedCount.toLocaleString()} entries from "${dictName}"!`);
+        return meta;
+      }
+
       // Morphological stemmer, base-lemma detector, collocations & everyday example generator
       function analyzeWordMorphologyOffline(rawWord, contextSentence) {
         const lower = rawWord.toLowerCase();
@@ -3470,7 +4195,7 @@
         }
       }
 
-      // Synthesizes structured Qwen2.5 8-label (word/phrase) or 5-label (sentence) bilingual output with <2MB memory usage
+      // Synthesizes structured Qwen2.5 8-label (word/phrase) or 5-label (sentence) bilingual output grounded by the 267k Offline Dictionary + Imported StarDict
       async function synthesizeLocalQwenStructuredText(phrase, contextSentence, isFullSentence, modelId) {
         const cleanP = (phrase || '').trim();
         const sent = (contextSentence || cleanP || '').replace(/\s+/g, ' ').trim();
@@ -3489,23 +4214,26 @@
               ).then(r => r.ok ? r.json() : null).then(d => Array.isArray(d?.[0]) ? d[0].map(seg => seg[0] || '').join('').trim() : '').catch(() => '');
             } catch (_) {}
           }
+          const STOP_WORDS = new Set(['that','this','with','from','they','them','their','there','were','been','have','into','about','would','could','should','which','while','where','when','what','your','just','very','more','some','such','than','then','also','only']);
           const keyWords = [];
           const seen = new Set();
           for (const w of words) {
             const cl = cleanWord(w).toLowerCase();
-            if (cl.length > 3 && !seen.has(cl)) {
-              const hit = customOfflineDict[cl] || OFFLINE_EN_VI_CORE[cl];
-              if (hit) {
+            if (cl.length > 3 && !STOP_WORDS.has(cl) && !seen.has(cl)) {
+              const hit = await lookupOfflineDictionary(cl);
+              if (hit && hit.vi) {
                 seen.add(cl);
-                keyWords.push(`${cl} (${hit.vi.split(',')[0].trim()})`);
+                const shortVi = hit.vi.replace(/^\([^)]+\)\s*/, '').replace(/^\d+\.\s*/, '').split(/[;|,]/)[0].trim();
+                if (shortVi) keyWords.push(`${cl} (${shortVi})`);
+                if (keyWords.length >= 6) break;
               }
             }
           }
           const simpleDef = `This ${words.length}-word sentence in the passage conveys: "${sent.slice(0, 160)}${sent.length > 160 ? '...' : ''}"`;
           const inCtx = is15B
-            ? `In the flow of this scene, the sentence advances the narrative and highlights key expressions${keyWords.length ? ' such as ' + keyWords.slice(0, 3).join(', ') : ''}.`
+            ? `In the flow of this scene, the sentence advances the narrative and highlights key expressions${keyWords.length ? ' such as ' + keyWords.slice(0, 4).join(', ') : ''}.`
             : `In this passage, the sentence expresses a complete thought within the scene.`;
-          const viMean = viTranslation || (keyWords.length ? `Các từ trọng tâm trong câu: ${keyWords.join(' • ')}` : 'Câu văn diễn tả tình tiết đang diễn ra trong đoạn truyện.');
+          const viMean = viTranslation || (keyWords.length ? `Nghĩa từ khóa trong câu: ${keyWords.join(' • ')}` : 'Câu văn diễn tả tình tiết đang diễn ra trong đoạn truyện.');
           const viDef = shortenVietnameseDef(viMean);
           const viCtx = keyWords.length
             ? `Trong ngữ cảnh đoạn truyện, câu này kết hợp các từ vựng chính (${keyWords.slice(0, 4).join(', ')}) để diễn tả: ${viMean}`
@@ -3513,7 +4241,7 @@
           return [
             `Simple Definition: ${simpleDef}`,
             `In This Context: ${inCtx}`,
-            ...(keyWords.length ? [`Key Phrases: ${keyWords.slice(0, 4).join('; ')}`] : []),
+            ...(keyWords.length ? [`Key Phrases: ${keyWords.slice(0, 5).join('; ')}`] : []),
             `Vietnamese Context: ${viCtx}`,
             `Vietnamese Definition: ${viDef}`,
             `Vietnamese Meaning: ${viMean}`
@@ -3524,21 +4252,24 @@
         const firstToken = cleanWord(cleanP.split(/\s+/)[0] || cleanP);
         const morph = analyzeWordMorphologyOffline(firstToken || cleanP, sent);
         const { govPhrase, localClause } = extractContextualPhraseAndClause(cleanP, sent);
-        const exactHit = customOfflineDict[cleanP.toLowerCase()] || OFFLINE_EN_VI_CORE[cleanP.toLowerCase()] || OFFLINE_PHRASES_EN_VI[cleanP.toLowerCase()];
+        // Priority lookup: 1) Imported StarDict/JSON IndexedDB -> 2) Core Dict -> 3) Built-in 267k Sharded EN-VI + IPA Dict
+        const offlineHit = await lookupOfflineDictionary(cleanP);
+        const exactHit = offlineHit || customOfflineDict[cleanP.toLowerCase()] || OFFLINE_EN_VI_CORE[cleanP.toLowerCase()] || OFFLINE_PHRASES_EN_VI[cleanP.toLowerCase()];
 
-        let dictSimpleDef = '';
-        let dictPos = '';
-        let dictExample = '';
-        let dictCollocs = [];
+        let dictSimpleDef = (exactHit && (exactHit.enDef || exactHit.def)) || '';
+        let dictPos = (exactHit && exactHit.pos && exactHit.pos !== 'word') ? exactHit.pos : '';
+        let dictExample = (exactHit && exactHit.example) || '';
+        let dictCollocs = (exactHit && Array.isArray(exactHit.collocations)) ? exactHit.collocations : [];
         let dictPhonetic = (exactHit && exactHit.phonetic) || '';
         let dictAudioUrl = (exactHit && exactHit.audioUrl) || '';
 
-        if (navigator.onLine !== false && !/\s/.test(cleanP)) {
+        // Only hit online dictionary API if online AND missing English definition or US audio URL
+        if (navigator.onLine !== false && !/\s/.test(cleanP) && (!dictSimpleDef || !dictPhonetic || !dictAudioUrl)) {
           try {
             const dRes = await fetchCloudApiWithTimeout(
               `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(firstToken.toLowerCase())}`,
               {},
-              2800
+              2400
             ).catch(() => null);
             if (dRes && dRes.ok) {
               const entries = await dRes.json();
@@ -3548,10 +4279,10 @@
                 const foundPhonetic = entry.phonetic || phList.find(p => p && p.text)?.text || '';
                 const foundAudioObj = phList.find(p => p && p.audio && p.audio.includes('-us.mp3'))
                   || phList.find(p => p && p.audio && p.audio.endsWith('.mp3'));
-                if (foundPhonetic) dictPhonetic = foundPhonetic;
+                if (!dictPhonetic && foundPhonetic) dictPhonetic = foundPhonetic;
                 if (foundAudioObj && foundAudioObj.audio) dictAudioUrl = foundAudioObj.audio;
 
-                if (!rule && Array.isArray(entry.meanings) && entry.meanings.length > 0) {
+                if (!rule && !dictSimpleDef && Array.isArray(entry.meanings) && entry.meanings.length > 0) {
                   const ctxWords = new Set(sent.toLowerCase().split(/\W+/));
                   let bestM = entry.meanings[0];
                   let bestD = bestM.definitions?.[0];
@@ -3570,9 +4301,9 @@
                   }
                   if (bestD && bestD.definition) {
                     dictSimpleDef = bestD.definition;
-                    dictPos = bestM.partOfSpeech || '';
-                    dictExample = bestD.example || '';
-                    dictCollocs = (bestM.synonyms || []).slice(0, 4);
+                    if (!dictPos) dictPos = bestM.partOfSpeech || '';
+                    if (!dictExample) dictExample = bestD.example || '';
+                    if (!dictCollocs.length) dictCollocs = (bestM.synonyms || []).slice(0, 4);
                   }
                 }
               }
@@ -3593,11 +4324,11 @@
           }
         }
 
+        const resolvedLemma = (exactHit && exactHit.lemma) || morph.lemma || firstToken.toLowerCase();
         const baseForm = (rule && rule.lemma)
-          || (dictPos ? `${firstToken.toLowerCase()} (${dictPos})` : '')
-          || `${morph.lemma} (${morph.pos})`;
+          || (dictPos ? `${resolvedLemma} (${dictPos})` : '')
+          || `${resolvedLemma} (${morph.pos})`;
         const simpleDef = (rule && rule.simpleDef)
-          || (exactHit && exactHit.def)
           || dictSimpleDef
           || morph.def;
         const displayGov = (rule && rule.govPhrase) || govPhrase || cleanP;
@@ -3614,24 +4345,22 @@
           || morph.vi;
         const viCtx = (rule && rule.viCtx)
           || (isLikelyValidVietnamese(viMean, cleanP)
-              ? `Trong cụm "${displayGov}", "${cleanP}" mang nghĩa "${viMean}" (${shortenVietnameseDef(viDef)}).`
+              ? `Trong cụm "${displayGov}", "${cleanP}" mang nghĩa "${viMean}"${resolvedLemma && resolvedLemma !== cleanP.toLowerCase() ? ` (gốc từ "${resolvedLemma}")` : ''}.`
               : '');
         const usageTip = (rule && rule.tip)
           || (exactHit && exactHit.tip)
           || (morph && morph.tip)
           || '';
         const collocList = ((rule && rule.collocations)
-          || (exactHit && exactHit.collocations)
           || (dictCollocs.length ? dictCollocs : (morph.collocations || [])))
           .filter(Boolean);
         const exampleSent = (rule && rule.example)
-          || (exactHit && exactHit.example)
           || dictExample
           || (morph && morph.example)
           || '';
 
-        // Cache newly fetched single-word definitions so future offline lookups are instant
-        if (dictSimpleDef && !/\s/.test(cleanP) && !OFFLINE_EN_VI_CORE[firstToken.toLowerCase()]) {
+        // Cache newly fetched online definitions only if not already in built-in/custom offline dictionary
+        if (dictSimpleDef && !offlineHit && !/\s/.test(cleanP) && !OFFLINE_EN_VI_CORE[firstToken.toLowerCase()]) {
           saveOfflineDictEntry(firstToken.toLowerCase(), {
             pos: dictPos || 'word',
             lemma: firstToken.toLowerCase(),
@@ -3995,7 +4724,7 @@
         return { govPhrase, localClause };
       }
 
-      function buildCompactLocalLlmPrompt(phrase, contextSentence, isFullSentence) {
+      function buildCompactLocalLlmPrompt(phrase, contextSentence, isFullSentence, offlineDictHit = null) {
         const shortCtx = (contextSentence || phrase || '').slice(0, 260);
         if (isFullSentence) {
           return `Explain this sentence based on its context in the story:
@@ -4010,9 +4739,12 @@ Vietnamese Definition: [1 câu tiếng Việt ngắn gọn dưới 16 từ tóm 
 Vietnamese Meaning: [Dịch tự nhiên, mượt mà và sát nghĩa toàn bộ câu này sang tiếng Việt]`;
         }
         const { govPhrase } = extractContextualPhraseAndClause(phrase, shortCtx);
+        const dictGrounding = offlineDictHit
+          ? `\nVerified Offline Dictionary Reference (${offlineDictHit.lemma}${offlineDictHit.pos ? ', ' + offlineDictHit.pos : ''}${offlineDictHit.phonetic ? ' ' + offlineDictHit.phonetic : ''}): EN: ${offlineDictHit.enDef || offlineDictHit.def || 'N/A'} | VI: ${offlineDictHit.vi || 'N/A'}\nPick the exact sense that matches this sentence.`
+          : '';
         return `Explain "${phrase}" (in the phrase "${govPhrase || phrase}") based strictly on its meaning in this sentence:
 Sentence: "${shortCtx}"
-Target: "${phrase}"
+Target: "${phrase}"${dictGrounding}
 
 Reply using these exact 9 labels (plain text, no markdown bolding):
 Base Form: [root word and exact part of speech of "${phrase}" in this sentence]
@@ -4154,7 +4886,7 @@ Everyday Example: [1 NEW short (8-16 words) modern spoken English sentence using
         const morph = phrase ? analyzeWordMorphologyOffline(phrase.trim().split(/\s+/)[0], contextSentence) : null;
         const { govPhrase, localClause } = extractContextualPhraseAndClause(phrase, contextSentence);
         const exactHit = !isFullSentence && phrase
-          ? (customOfflineDict[phrase.toLowerCase()] || OFFLINE_EN_VI_CORE[phrase.toLowerCase()] || OFFLINE_PHRASES_EN_VI[phrase.toLowerCase()])
+          ? (await lookupOfflineDictionary(phrase) || customOfflineDict[phrase.toLowerCase()] || OFFLINE_EN_VI_CORE[phrase.toLowerCase()] || OFFLINE_PHRASES_EN_VI[phrase.toLowerCase()])
           : null;
 
         let baseForm = parsedFields.baseForm;
@@ -4373,7 +5105,8 @@ Everyday Example: [1 NEW short (8-16 words) modern spoken English sentence using
         abortActiveLocalWebLlmGeneration();
         const myGenId = window._webllmActiveGenId;
 
-        const promptText = buildCompactLocalLlmPrompt(phrase, contextSentence, isFullSentence);
+        const offlineDictHit = !isFullSentence ? await lookupOfflineDictionary(phrase) : null;
+        const promptText = buildCompactLocalLlmPrompt(phrase, contextSentence, isFullSentence, offlineDictHit);
         const messages = [
           {
             role: 'system',
@@ -4416,8 +5149,9 @@ Everyday Example: [1 NEW short (8-16 words) modern spoken English sentence using
         }
 
         const enriched = await enrichParsedOutputWithContextualVietnamese(rawOutputText, phrase, contextSentence, isFullSentence);
+        const dictTag = offlineDictHit ? ` + ${offlineDictHit.source}` : '';
         return {
-          source: `Local WebLLM (${window._webllmLoadedModel || 'Offline'})`,
+          source: `Local WebLLM (${window._webllmLoadedModel || 'Offline'})${dictTag}`,
           html: enriched.html,
           summary: enriched.summary
         };
@@ -5222,7 +5956,7 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         updateSaveVocabButtonState();
         renderAiVocabStatusBar();
 
-        // Check cached dictionary phonetic/audio immediately for single words, and fetch IPA/US audio in parallel if missing
+        // Check cached & offline dictionary phonetic/audio immediately for single words, and fetch US audio in parallel if online
         if (!isFullSentence && !/\s/.test(phrase)) {
           const wordKey = cleanWord(phrase).toLowerCase();
           const cached = customOfflineDict[wordKey] || OFFLINE_EN_VI_CORE[wordKey];
@@ -5233,6 +5967,18 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
           }
           if (cached && cached.audioUrl) {
             state.currentExplanation.audioUrl = cached.audioUrl;
+          }
+          if (!state.currentExplanation.phonetic) {
+            lookupOfflineDictionary(wordKey).then((offHit) => {
+              if (myLookupId !== activeLookupId) return;
+              if (offHit && offHit.phonetic && !state.currentExplanation.phonetic) {
+                state.currentExplanation.phonetic = offHit.phonetic;
+                if (el.aiPhoneticBadge) {
+                  el.aiPhoneticBadge.textContent = offHit.phonetic;
+                  el.aiPhoneticBadge.classList.remove('hidden');
+                }
+              }
+            }).catch(() => {});
           }
           if ((!state.currentExplanation.phonetic || !state.currentExplanation.audioUrl) && navigator.onLine !== false) {
             fetchWordPhoneticAndAudio(phrase, myLookupId);
@@ -6366,6 +7112,128 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         inputEl.addEventListener('input', () => syncAiInputsToState());
         inputEl.addEventListener('change', () => syncAiInputsToState());
       });
+
+      // Offline Dictionary Settings UI Controller (Built-in 267k Shards + Custom StarDict/JSON Importer)
+      (function initOfflineDictionaryUi() {
+        const badgeEl = document.getElementById('offline-dict-status-badge');
+        const summaryEl = document.getElementById('offline-dict-summary');
+        const btnCacheAll = document.getElementById('btn-cache-offline-dict');
+        const fileInput = document.getElementById('offline-dict-file-input');
+        const btnClear = document.getElementById('btn-clear-custom-dict');
+        const progWrap = document.getElementById('offline-dict-progress-wrap');
+        const progBar = document.getElementById('offline-dict-progress-bar');
+        const progText = document.getElementById('offline-dict-progress-text');
+        const testInput = document.getElementById('offline-dict-test-input');
+        const btnTest = document.getElementById('btn-test-offline-dict');
+        const testResult = document.getElementById('offline-dict-test-result');
+
+        function setDictProgress(pct, msg) {
+          if (progWrap) progWrap.classList.remove('hidden');
+          if (progBar) progBar.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+          if (progText) progText.textContent = msg;
+        }
+
+        function refreshOfflineDictUi() {
+          const customMeta = getCustomOfflineDictMeta();
+          if (customMeta && customMeta.count > 0) {
+            if (badgeEl) {
+              badgeEl.textContent = `Custom (${customMeta.count.toLocaleString()}) + 267k`;
+              badgeEl.className = 'text-[11px] px-2 py-0.5 rounded-full bg-emerald-600/15 tone-emerald font-semibold';
+            }
+            if (summaryEl) {
+              summaryEl.innerHTML = `Active custom dictionary: <strong>${escapeHtml(customMeta.name || 'Imported')}</strong> (${customMeta.count.toLocaleString()} entries in IndexedDB) + built-in <strong>267k EN&ndash;VI + IPA</strong> fallback.`;
+            }
+            if (btnClear) btnClear.classList.remove('hidden');
+          } else {
+            if (badgeEl) {
+              badgeEl.textContent = '267k Built-in';
+              badgeEl.className = 'text-[11px] px-2 py-0.5 rounded-full bg-amber-600/15 tone-amber font-semibold';
+            }
+            if (summaryEl) {
+              summaryEl.innerHTML = `Built-in <strong>137k EN&ndash;VI + IPA</strong> dictionary (267k word forms) automatically grounds Local Qwen2.5 offline. Cache all 27 letter packs for offline reading, or import your own StarDict (<code>.zip</code> / <code>.idx</code> + <code>.dict.dz</code>) or JSON dictionary.`;
+            }
+            if (btnClear) btnClear.classList.add('hidden');
+          }
+        }
+
+        refreshOfflineDictUi();
+
+        if (btnCacheAll) {
+          btnCacheAll.addEventListener('click', async () => {
+            btnCacheAll.disabled = true;
+            try {
+              setDictProgress(4, 'Downloading 27 dictionary letter packs...');
+              const count = await cacheAllBuiltInOfflineDictShards((pct, msg) => setDictProgress(pct, msg));
+              showToast(`Cached ${count}/27 offline dictionary packs!`);
+            } catch (err) {
+              setDictProgress(0, `Caching failed: ${err && err.message ? err.message : 'Check connection'}`);
+              showToast('Could not cache all dictionary shards');
+            } finally {
+              btnCacheAll.disabled = false;
+            }
+          });
+        }
+
+        if (fileInput) {
+          fileInput.addEventListener('change', async (e) => {
+            const files = e.target.files;
+            if (!files || !files.length) return;
+            try {
+              setDictProgress(5, 'Reading dictionary files...');
+              const meta = await importOfflineDictionaryFiles(files, (pct, msg) => setDictProgress(pct, msg));
+              refreshOfflineDictUi();
+              showToast(`Imported ${meta.count.toLocaleString()} entries (${meta.name})`);
+            } catch (err) {
+              console.error('Offline dictionary import error:', err);
+              setDictProgress(0, `Import error: ${err && err.message ? err.message : 'Unsupported format'}`);
+              showToast(err && err.message ? err.message.slice(0, 90) : 'Dictionary import failed');
+            } finally {
+              e.target.value = '';
+            }
+          });
+        }
+
+        if (btnClear) {
+          btnClear.addEventListener('click', async () => {
+            await clearCustomOfflineDictDb();
+            refreshOfflineDictUi();
+            if (progWrap) progWrap.classList.add('hidden');
+            showToast('Cleared custom dictionary (built-in 267k remains active)');
+          });
+        }
+
+        const runTestLookup = async () => {
+          const q = (testInput && testInput.value || '').trim();
+          if (!q || !testResult) return;
+          testResult.classList.remove('hidden');
+          testResult.textContent = `Looking up "${q}" offline...`;
+          const t0 = performance.now();
+          const hit = await lookupOfflineDictionary(q);
+          const ms = Math.max(1, Math.round(performance.now() - t0));
+          if (!hit) {
+            testResult.innerHTML = `<span class="tone-amber">No offline entry found for <strong>${escapeHtml(q)}</strong> (${ms}ms).</span>`;
+            return;
+          }
+          testResult.innerHTML = `
+            <div class="flex items-center justify-between gap-2">
+              <div><strong class="ink-strong">${escapeHtml(hit.lemma || q)}</strong> ${hit.phonetic ? `<span class="muted-text">${escapeHtml(hit.phonetic)}</span>` : ''} ${hit.pos ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-600/15 tone-amber">${escapeHtml(hit.pos)}</span>` : ''}</div>
+              <span class="text-[10px] muted-text shrink-0">${ms}ms &bull; ${escapeHtml(hit.source)}</span>
+            </div>
+            ${hit.enDef ? `<div><strong>EN:</strong> ${escapeHtml(hit.enDef)}</div>` : ''}
+            ${hit.vi ? `<div><strong>VI:</strong> ${escapeHtml(hit.vi)}</div>` : ''}
+          `;
+        };
+
+        if (btnTest) btnTest.addEventListener('click', runTestLookup);
+        if (testInput) {
+          testInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              runTestLookup();
+            }
+          });
+        }
+      })();
 
       el.btnTestAi.addEventListener('click', async () => {
         syncAiInputsToState();
