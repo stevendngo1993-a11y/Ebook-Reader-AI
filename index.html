@@ -263,7 +263,8 @@
     #read-along-bar {
       padding-bottom: max(0.6rem, env(safe-area-inset-bottom));
     }
-    #ra-scrubber {
+    #ra-scrubber,
+    #ra-speed-slider {
       height: 5px;
       accent-color: var(--reader-accent);
     }
@@ -1127,9 +1128,40 @@
       <span id="ra-time-total" class="text-[11px] font-mono tabular-nums muted-text w-12 shrink-0">00:00</span>
     </div>
 
+    <!-- Collapsible Reading Speed Slider Panel (0.5x - 2.0x) -->
+    <div id="ra-speed-panel" class="hidden rounded-xl border border-themed subtle-surface px-3 py-2 space-y-1.5">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-1.5">
+          <span class="text-[11px] font-semibold muted-text">Speed</span>
+          <span id="ra-speed-value" class="text-xs font-bold tabular-nums tone-amber">1.0&times;</span>
+        </div>
+        <div class="flex items-center gap-1">
+          <button type="button" data-ra-speed-preset="0.5" class="px-1.5 py-0.5 rounded-md border border-themed text-[10px] font-semibold tabular-nums hover-surface">0.5&times;</button>
+          <button type="button" data-ra-speed-preset="0.75" class="px-1.5 py-0.5 rounded-md border border-themed text-[10px] font-semibold tabular-nums hover-surface">0.75&times;</button>
+          <button type="button" data-ra-speed-preset="1" class="px-1.5 py-0.5 rounded-md border border-themed text-[10px] font-semibold tabular-nums hover-surface">1.0&times;</button>
+          <button type="button" data-ra-speed-preset="1.25" class="px-1.5 py-0.5 rounded-md border border-themed text-[10px] font-semibold tabular-nums hover-surface">1.25&times;</button>
+          <button type="button" data-ra-speed-preset="1.5" class="px-1.5 py-0.5 rounded-md border border-themed text-[10px] font-semibold tabular-nums hover-surface">1.5&times;</button>
+          <button type="button" data-ra-speed-preset="2" class="px-1.5 py-0.5 rounded-md border border-themed text-[10px] font-semibold tabular-nums hover-surface">2.0&times;</button>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="btn-ra-speed-dec" type="button" aria-label="Decrease reading speed" class="w-7 h-7 rounded-lg border border-themed text-sm font-bold hover-surface active:scale-95 transition-all shrink-0">&minus;</button>
+        <div class="flex-1 space-y-0.5">
+          <input id="ra-speed-slider" type="range" min="0.5" max="2.0" step="0.05" value="1.0" aria-label="Reading speed from 0.5x to 2.0x" class="w-full cursor-pointer" />
+          <div class="flex justify-between text-[9px] font-mono tabular-nums muted-text px-0.5">
+            <span>0.5&times;</span>
+            <span>1.0&times;</span>
+            <span>1.5&times;</span>
+            <span>2.0&times;</span>
+          </div>
+        </div>
+        <button id="btn-ra-speed-inc" type="button" aria-label="Increase reading speed" class="w-7 h-7 rounded-lg border border-themed text-sm font-bold hover-surface active:scale-95 transition-all shrink-0">+</button>
+      </div>
+    </div>
+
     <!-- Playback Controls Row -->
     <div class="flex items-center justify-between gap-2 pb-0.5">
-      <button id="btn-ra-speed" type="button" title="Playback Speed (0.75x - 2x)" class="px-2.5 py-1.5 rounded-xl border border-themed text-xs font-bold tabular-nums hover-surface transition-colors min-w-[54px]">
+      <button id="btn-ra-speed" type="button" title="Adjust Reading Speed (0.5x - 2.0x)" aria-expanded="false" aria-controls="ra-speed-panel" class="px-2.5 py-1.5 rounded-xl border border-themed text-xs font-bold tabular-nums hover-surface transition-colors min-w-[54px]">
         1.0&times;
       </button>
 
@@ -1163,7 +1195,7 @@
         <div>
           <div class="flex items-center gap-1.5">
             <h3 class="text-sm font-bold">Read Along Audiobook</h3>
-            <span class="px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-600/15 tone-emerald border border-emerald-600/25">v11</span>
+            <span class="px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-600/15 tone-emerald border border-emerald-600/25">v12</span>
           </div>
           <p id="ra-modal-book-label" class="text-[11px] muted-text truncate max-w-[290px]">Attach MP3, M4A, M4B, or WAV &amp; sync to text</p>
         </div>
@@ -8475,10 +8507,26 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
       // 11b. Read Along Audiobook Sync Engine
       // ==========================================
       window.epubSentences = [];
-      const RA_SPEEDS = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+      const RA_SPEED_MIN = 0.5;
+      const RA_SPEED_MAX = 2.0;
+      const RA_SPEED_STEP = 0.05;
+      const RA_SPEEDS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
       const RA_PREFS_KEY = 'lumina_read_along_prefs';
       const RA_MAX_DIRECT_WHISPER_BYTES = 23 * 1024 * 1024;
       const RA_WHISPER_CHUNK_SECONDS = 480; // 8 min @ 16kHz mono 16-bit WAV = ~15.3 MB (well below 25 MB API limit)
+
+      function clampReadAlongSpeed(val) {
+        const n = Number(val);
+        if (!Number.isFinite(n)) return 1.0;
+        const clamped = Math.max(RA_SPEED_MIN, Math.min(RA_SPEED_MAX, n));
+        return Number((Math.round(clamped / RA_SPEED_STEP) * RA_SPEED_STEP).toFixed(2));
+      }
+
+      function formatReadAlongSpeed(rate) {
+        const clean = clampReadAlongSpeed(rate);
+        const s = clean.toFixed(2).replace(/0$/, '');
+        return `${s.endsWith('.') ? s + '0' : s}×`;
+      }
 
       const raAudio = document.createElement('audio');
       raAudio.id = 'read-along-audio';
@@ -8504,6 +8552,11 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         scrubber: document.getElementById('ra-scrubber'),
         timeTotal: document.getElementById('ra-time-total'),
         btnSpeed: document.getElementById('btn-ra-speed'),
+        speedPanel: document.getElementById('ra-speed-panel'),
+        speedValue: document.getElementById('ra-speed-value'),
+        speedSlider: document.getElementById('ra-speed-slider'),
+        btnSpeedDec: document.getElementById('btn-ra-speed-dec'),
+        btnSpeedInc: document.getElementById('btn-ra-speed-inc'),
         btnBack15: document.getElementById('btn-ra-back-15'),
         btnPlayPause: document.getElementById('btn-ra-play-pause'),
         iconPlay: document.getElementById('ra-icon-play'),
@@ -9206,9 +9259,25 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
         if (raDom.offsetLabel) {
           raDom.offsetLabel.textContent = `${offset > 0 ? '+' : ''}${offset.toFixed(1)}s`;
         }
+        const activeRate = clampReadAlongSpeed(raAudio.playbackRate || track.playbackRate || 1.0);
+        const speedLabel = formatReadAlongSpeed(activeRate);
         if (raDom.btnSpeed) {
-          const rate = Number(raAudio.playbackRate || track.playbackRate || 1.0);
-          raDom.btnSpeed.textContent = `${rate.toFixed(rate % 1 === 0 ? 1 : 2).replace(/0$/, '')}×`;
+          raDom.btnSpeed.textContent = speedLabel;
+        }
+        if (raDom.speedValue) {
+          raDom.speedValue.textContent = speedLabel;
+        }
+        if (raDom.speedSlider && Number(raDom.speedSlider.value) !== activeRate) {
+          raDom.speedSlider.value = String(activeRate);
+        }
+        if (raDom.speedPanel) {
+          raDom.speedPanel.querySelectorAll('[data-ra-speed-preset]').forEach(btn => {
+            const p = Number(btn.dataset.raSpeedPreset);
+            const isMatch = Math.abs(p - activeRate) < 0.01;
+            btn.className = isMatch
+              ? 'px-1.5 py-0.5 rounded-md border border-amber-600 bg-amber-600/20 tone-amber text-[10px] font-bold tabular-nums'
+              : 'px-1.5 py-0.5 rounded-md border border-themed text-[10px] font-semibold tabular-nums hover-surface';
+          });
         }
       }
 
@@ -9468,7 +9537,7 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
 
         const prefs = getReadAlongPrefs();
         const rate = Number((savedLocalPos && savedLocalPos.r) || metaOnly.playbackRate || prefs.lastRate || 1.0);
-        const validRate = RA_SPEEDS.includes(rate) ? rate : 1.0;
+        const validRate = clampReadAlongSpeed(rate);
         raAudio.playbackRate = validRate;
 
         const targetSentences = getTargetSentencesForTrack(metaOnly);
@@ -10164,17 +10233,66 @@ Everyday Example: 1 BRAND-NEW short (8-16 words) modern spoken English sentence 
       if (raDom.btnPlayPause) raDom.btnPlayPause.addEventListener('click', toggleReadAlongPlay);
       if (raDom.btnBack15) raDom.btnBack15.addEventListener('click', () => seekReadAlongBy(-15));
       if (raDom.btnFwd15) raDom.btnFwd15.addEventListener('click', () => seekReadAlongBy(15));
+      const setReadAlongSpeed = (rawVal, persistNow = true) => {
+        const clean = clampReadAlongSpeed(rawVal);
+        raAudio.playbackRate = clean;
+        updateReadAlongSyncUi();
+        if (persistNow) {
+          persistActiveReadAlongPosition(true, true);
+        }
+      };
+
+      const setSpeedPanelOpen = (open) => {
+        if (!raDom.speedPanel) return;
+        raDom.speedPanel.classList.toggle('hidden', !open);
+        if (raDom.btnSpeed) {
+          raDom.btnSpeed.setAttribute('aria-expanded', open ? 'true' : 'false');
+          raDom.btnSpeed.classList.toggle('border-amber-600', open);
+          raDom.btnSpeed.classList.toggle('bg-amber-600/15', open);
+          raDom.btnSpeed.classList.toggle('tone-amber', open);
+        }
+      };
+
       if (raDom.btnSpeed) {
-        raDom.btnSpeed.addEventListener('click', () => {
-          const cur = Number(raAudio.playbackRate) || 1.0;
-          const idx = RA_SPEEDS.findIndex(s => Math.abs(s - cur) < 0.05);
-          const next = RA_SPEEDS[(idx + 1) % RA_SPEEDS.length];
-          raAudio.playbackRate = next;
-          updateReadAlongSyncUi();
-          persistActiveReadAlongPosition(true);
-          showToast(`Speed: ${next}×`);
+        raDom.btnSpeed.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const isOpen = raDom.speedPanel && !raDom.speedPanel.classList.contains('hidden');
+          setSpeedPanelOpen(!isOpen);
         });
       }
+      if (raDom.speedSlider) {
+        raDom.speedSlider.addEventListener('input', () => {
+          setReadAlongSpeed(raDom.speedSlider.value, false);
+        });
+        raDom.speedSlider.addEventListener('change', () => {
+          setReadAlongSpeed(raDom.speedSlider.value, true);
+        });
+      }
+      if (raDom.btnSpeedDec) {
+        raDom.btnSpeedDec.addEventListener('click', () => {
+          setReadAlongSpeed((Number(raAudio.playbackRate) || 1.0) - RA_SPEED_STEP, true);
+        });
+      }
+      if (raDom.btnSpeedInc) {
+        raDom.btnSpeedInc.addEventListener('click', () => {
+          setReadAlongSpeed((Number(raAudio.playbackRate) || 1.0) + RA_SPEED_STEP, true);
+        });
+      }
+      if (raDom.speedPanel) {
+        raDom.speedPanel.addEventListener('click', (e) => {
+          const presetBtn = e.target.closest('[data-ra-speed-preset]');
+          if (presetBtn) {
+            setReadAlongSpeed(presetBtn.dataset.raSpeedPreset, true);
+          }
+        });
+      }
+      document.addEventListener('click', (e) => {
+        if (raDom.speedPanel && !raDom.speedPanel.classList.contains('hidden')) {
+          if (!raDom.speedPanel.contains(e.target) && !(raDom.btnSpeed && raDom.btnSpeed.contains(e.target))) {
+            setSpeedPanelOpen(false);
+          }
+        }
+      });
       if (raDom.scrubber) {
         const commitScrub = () => {
           if (!raState.isScrubbing) return;

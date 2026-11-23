@@ -1,6 +1,6 @@
 /* Steven N. Ebook — Offline App-Shell, Low-RAM Range-Streaming & Sharded Dictionary Service Worker (GitHub Pages subpath-safe) */
-const CACHE_VERSION = 'steven-ebook-shell-v11';
-const RUNTIME_CACHE = 'steven-ebook-runtime-v11';
+const CACHE_VERSION = 'steven-ebook-shell-v12';
+const RUNTIME_CACHE = 'steven-ebook-runtime-v12';
 const DICT_CACHE = 'steven-ebook-dict-v1';
 
 const RA_STREAM_MARKER = '/__read_along_audio__/';
